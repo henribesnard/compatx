@@ -1,10 +1,11 @@
 // src/api/ohada.ts
-import axios from 'axios';
+import axios, { AxiosInstance } from 'axios';
+import { ApiErrorResponse } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 // Création d'une instance axios configurée
-const createApiInstance = (token?: string | null) => {
+const createApiInstance = (token?: string | null): AxiosInstance => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -130,8 +131,30 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error getting API info:', error);
-      throw error;
+      throw this.handleApiError(error);
     }
+  },
+  
+  // Gérer les erreurs d'API
+  handleApiError(error: unknown): Error {
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as unknown as {
+        response?: {
+          data?: ApiErrorResponse;
+          status?: number;
+        };
+      };
+      
+      if (axiosError.response?.data?.detail) {
+        return new Error(axiosError.response.data.detail);
+      } else if (axiosError.response?.data?.message) {
+        return new Error(axiosError.response.data.message);
+      } else if (axiosError.response?.status === 401) {
+        return new Error('Session expirée. Veuillez vous reconnecter.');
+      }
+    }
+    
+    return new Error('Une erreur inattendue est survenue. Veuillez réessayer.');
   },
   
   // Envoyer une requête standard (sans streaming)
@@ -152,7 +175,7 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error querying OHADA API:', error);
-      throw error;
+      throw this.handleApiError(error);
     }
   },
   
@@ -164,7 +187,7 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error getting history:', error);
-      throw error;
+      throw this.handleApiError(error);
     }
   },
   
@@ -176,7 +199,7 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error checking query status:', error);
-      throw error;
+      throw this.handleApiError(error);
     }
   },
   
@@ -199,9 +222,8 @@ export const ohadaApi = {
     if (options.chapitre) params.append('chapitre', options.chapitre.toString());
     if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
     
-    // Construire l'URL complète avec le token si fourni
-    // Note: L'utilisation du token dans l'URL n'est pas une pratique recommandée pour la sécurité
-    // mais c'est un contournement pour EventSource qui ne supporte pas les headers
+    // Pour l'authentification dans SSE, on passe le token comme paramètre
+    // Ce n'est pas idéal pour la sécurité, mais c'est une limitation d'EventSource
     if (token) {
       params.append('_token', token);
     }

@@ -1,9 +1,14 @@
+// src/components/Header/Header.tsx
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { FaUser, FaSignOutAlt, FaCog } from 'react-icons/fa';
-import GoogleLogin from '../Auth/GoogleLogin';
+import { FaUser, FaSignOutAlt, FaCog, FaLock, FaSignInAlt, FaUserPlus } from 'react-icons/fa';
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  onOpenLogin: () => void;
+  onOpenRegister: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ onOpenLogin, onOpenRegister }) => {
   const { isAuthenticated, user, logout } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
@@ -16,10 +21,22 @@ const Header: React.FC = () => {
       
       <div className="flex items-center gap-4">
         {!isAuthenticated ? (
-          <GoogleLogin 
-            onLoginSuccess={() => window.location.reload()}
-            onLoginError={(error) => console.error('Login error:', error)}
-          />
+          <div className="flex gap-2">
+            <button
+              onClick={onOpenLogin}
+              className="px-3 py-1.5 text-sm border border-primary text-primary rounded hover:bg-primary-light transition-colors flex items-center gap-1"
+            >
+              <FaSignInAlt size={14} />
+              <span>Connexion</span>
+            </button>
+            <button
+              onClick={onOpenRegister}
+              className="px-3 py-1.5 text-sm bg-primary text-white rounded hover:bg-primary-dark transition-colors flex items-center gap-1"
+            >
+              <FaUserPlus size={14} />
+              <span>Inscription</span>
+            </button>
+          </div>
         ) : (
           <div className="relative">
             <button 
@@ -54,6 +71,16 @@ const Header: React.FC = () => {
                   >
                     <FaCog size={14} />
                     <span>Paramètres</span>
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      // Naviguer vers changement de mot de passe (à implémenter)
+                    }}
+                    className="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <FaLock size={14} />
+                    <span>Changer mot de passe</span>
                   </button>
                   <button 
                     onClick={() => {
