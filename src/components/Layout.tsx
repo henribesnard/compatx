@@ -1,18 +1,31 @@
 // src/components/Layout.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar/Sidebar';
 import ChatContainer from './Chat/ChatContainer';
 import Header from './Header/Header';
 import { useAuth } from '../contexts/AuthContext';
-import LoginForm from './Auth/LoginForm';
-import RegisterForm from './Auth/RegisterForm';
-import ForgotPasswordForm from './Auth/ForgotPasswordForm';
+import AuthModal from './Auth/AuthModal';
 
-type AuthFormType = 'login' | 'register' | 'forgot-password' | null;
+type AuthFormType = 'login' | 'register' | 'forgot-password' | 'reset-password' | null;
 
 const Layout: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
-  const [authFormType, setAuthFormType] = useState<AuthFormType>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [initialAuthForm, setInitialAuthForm] = useState<AuthFormType>('login');
+  const location = useLocation();
+
+  // Effet pour vérifier les paramètres d'URL pour la réinitialisation de mot de passe
+  useEffect(() => {
+    const query = new URLSearchParams(location.search);
+    const token = query.get('token');
+    const email = query.get('email');
+    
+    if (token && email && !isAuthenticated) {
+      setInitialAuthForm('reset-password');
+      setAuthModalOpen(true);
+    }
+  }, [location, isAuthenticated]);
 
   // Afficher un écran de chargement
   if (isLoading) {
@@ -26,10 +39,15 @@ const Layout: React.FC = () => {
     );
   }
 
-  const handleOpenLogin = () => setAuthFormType('login');
-  const handleOpenRegister = () => setAuthFormType('register');
-  const handleOpenForgotPassword = () => setAuthFormType('forgot-password');
-  const handleCloseForm = () => setAuthFormType(null);
+  const handleOpenLogin = () => {
+    setInitialAuthForm('login');
+    setAuthModalOpen(true);
+  };
+  
+  const handleOpenRegister = () => {
+    setInitialAuthForm('register');
+    setAuthModalOpen(true);
+  };
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -49,59 +67,40 @@ const Layout: React.FC = () => {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-lg">
-              {authFormType === null && (
-                <>
-                  <div className="text-center mb-6">
-                    <h2 className="text-2xl font-bold text-primary mb-2">Bienvenue sur ComptaX</h2>
-                    <p className="text-gray-600">Assistant expert en comptabilité OHADA</p>
-                  </div>
-                  
-                  <div className="mb-4 space-y-3">
-                    <button
-                      onClick={handleOpenLogin}
-                      className="w-full py-2 px-4 bg-primary text-white rounded flex items-center justify-center gap-2 hover:bg-primary-dark transition-colors"
-                    >
-                      <span>Se connecter</span>
-                    </button>
-                    <button
-                      onClick={handleOpenRegister}
-                      className="w-full py-2 px-4 border border-primary text-primary rounded flex items-center justify-center gap-2 hover:bg-primary-light transition-colors"
-                    >
-                      <span>Créer un compte</span>
-                    </button>
-                  </div>
-                  
-                  <div className="text-center text-sm text-gray-500 mt-4">
-                    <p>Connectez-vous pour accéder à toutes les fonctionnalités</p>
-                  </div>
-                </>
-              )}
-
-              {authFormType === 'login' && (
-                <LoginForm 
-                  onCancel={handleCloseForm}
-                  onRegisterClick={handleOpenRegister}
-                  onForgotPasswordClick={handleOpenForgotPassword}
-                />
-              )}
-
-              {authFormType === 'register' && (
-                <RegisterForm 
-                  onCancel={handleCloseForm}
-                  onLoginClick={handleOpenLogin}
-                />
-              )}
-
-              {authFormType === 'forgot-password' && (
-                <ForgotPasswordForm 
-                  onCancel={handleCloseForm}
-                  onLoginClick={handleOpenLogin}
-                />
-              )}
+              <div className="text-center mb-6">
+                <h2 className="text-2xl font-bold text-primary mb-2">Bienvenue sur ComptaX</h2>
+                <p className="text-gray-600">Assistant expert en comptabilité OHADA</p>
+              </div>
+              
+              <div className="mb-4 space-y-3">
+                <button
+                  onClick={handleOpenLogin}
+                  className="w-full py-2 px-4 bg-primary text-white rounded flex items-center justify-center gap-2 hover:bg-primary-dark transition-colors"
+                >
+                  <span>Se connecter</span>
+                </button>
+                <button
+                  onClick={handleOpenRegister}
+                  className="w-full py-2 px-4 border border-primary text-primary rounded flex items-center justify-center gap-2 hover:bg-primary-light transition-colors"
+                >
+                  <span>Créer un compte</span>
+                </button>
+              </div>
+              
+              <div className="text-center text-sm text-gray-500 mt-4">
+                <p>Connectez-vous pour accéder à toutes les fonctionnalités</p>
+              </div>
             </div>
           </div>
         )}
       </div>
+      
+      {/* Modal d'authentification */}
+      <AuthModal 
+        isOpen={authModalOpen} 
+        onClose={() => setAuthModalOpen(false)} 
+        initialForm={initialAuthForm}
+      />
     </div>
   );
 };
