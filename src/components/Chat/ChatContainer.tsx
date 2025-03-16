@@ -1,12 +1,14 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useChat } from '../../contexts/ChatContext';
+import { useAuth } from '../../contexts/AuthContext';
 import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import { ohadaApi, Source as ApiSource } from '../../api/ohada';
-import { Source } from '../../types'; // Utilisez votre définition de type locale
+import { Source } from '../../types';
 
 const ChatContainer: React.FC = () => {
-  const { currentConversation, addMessage } = useChat();
+  const { currentConversation, addMessage, isLoadingConversations } = useChat();
+  const { isAuthenticated, getToken } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
@@ -56,10 +58,19 @@ const ChatContainer: React.FC = () => {
     }
     
     try {
+      // Récupérer le token si authentifié
+      const token = isAuthenticated ? getToken() : null;
+      
+      // Préparer les options pour l'API
+      const options = {
+        include_sources: true,
+        save_to_conversation: currentConversation?.serverId || null
+      };
+      
       // Utiliser l'API avec streaming
       const closeStream = ohadaApi.streamQuery(
         message,
-        { include_sources: true },
+        options,
         {
           onStart: (data) => {
             console.log('Streaming started:', data);
@@ -86,7 +97,8 @@ const ChatContainer: React.FC = () => {
             setStreamingText('');
             setIsLoading(false);
           }
-        }
+        },
+        token
       );
       
       // Stocker la fonction pour fermer le stream
@@ -99,8 +111,27 @@ const ChatContainer: React.FC = () => {
     }
   };
 
+  // Si les conversations sont en cours de chargement
+  if (isLoadingConversations) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-3 text-gray-600">Chargement des conversations...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentConversation) {
-    return <div className="flex-1 flex items-center justify-center">Aucune conversation sélectionnée</div>;
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center p-8">
+          <p className="text-lg text-gray-600 mb-4">Aucune conversation sélectionnée</p>
+          <p className="text-gray-500">Commencez une nouvelle conversation ou sélectionnez-en une existante.</p>
+        </div>
+      </div>
+    );
   }
 
   return (

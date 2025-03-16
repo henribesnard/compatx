@@ -1,15 +1,23 @@
 // src/api/ohada.ts
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8080'; // Remplacer par l'URL de votre API OHADA
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 // Création d'une instance axios configurée
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
+const createApiInstance = (token?: string | null) => {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-  },
-});
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return axios.create({
+    baseURL: API_URL,
+    headers,
+  });
+};
 
 // Types pour l'API OHADA
 export interface QueryRequest {
@@ -19,6 +27,7 @@ export interface QueryRequest {
   n_results?: number;
   include_sources?: boolean;
   stream?: boolean;
+  save_to_conversation?: string | null;
 }
 
 export interface Source {
@@ -48,6 +57,9 @@ export interface QueryResponse {
   sources?: Source[];
   performance: Performance;
   timestamp: number;
+  conversation_id?: string;
+  user_message_id?: string;
+  ia_message_id?: string;
 }
 
 export interface ApiInfo {
@@ -61,6 +73,8 @@ export interface StreamStartEvent {
   id: string;
   query: string;
   timestamp: number;
+  conversation_id?: string;
+  user_message_id?: string;
 }
 
 export interface StreamProgressEvent {
@@ -111,6 +125,7 @@ export const ohadaApi = {
   // Obtenir des informations sur l'API
   async getApiInfo(): Promise<ApiInfo> {
     try {
+      const api = createApiInstance();
       const response = await api.get<ApiInfo>('/');
       return response.data;
     } catch (error) {
@@ -120,8 +135,9 @@ export const ohadaApi = {
   },
   
   // Envoyer une requête standard (sans streaming)
-  async query(queryText: string, options: Partial<QueryRequest> = {}): Promise<QueryResponse> {
+  async query(queryText: string, options: Partial<QueryRequest> = {}, token?: string | null): Promise<QueryResponse> {
     try {
+      const api = createApiInstance(token);
       const requestData: QueryRequest = {
         query: queryText,
         n_results: options.n_results || 5,
@@ -129,6 +145,7 @@ export const ohadaApi = {
         partie: options.partie || null,
         chapitre: options.chapitre || null,
         stream: false,
+        save_to_conversation: options.save_to_conversation || null,
       };
       
       const response = await api.post<QueryResponse>('/query', requestData);
@@ -140,8 +157,9 @@ export const ohadaApi = {
   },
   
   // Obtenir l'historique des conversations
-  async getHistory(limit: number = 10): Promise<HistoryResponse> {
+  async getHistory(limit: number = 10, token?: string | null): Promise<HistoryResponse> {
     try {
+      const api = createApiInstance(token);
       const response = await api.get<HistoryResponse>(`/history?limit=${limit}`);
       return response.data;
     } catch (error) {
@@ -153,6 +171,7 @@ export const ohadaApi = {
   // Vérifier le statut d'une requête en cours
   async getQueryStatus(queryId: string): Promise<QueryStatus> {
     try {
+      const api = createApiInstance();
       const response = await api.get<QueryStatus>(`/status/${queryId}`);
       return response.data;
     } catch (error) {
@@ -165,7 +184,8 @@ export const ohadaApi = {
   streamQuery(
     queryText: string, 
     options: Partial<QueryRequest> = {},
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    token?: string | null
   ): () => void {
     
     // Construire l'URL avec les paramètres
@@ -177,9 +197,21 @@ export const ohadaApi = {
     
     if (options.partie) params.append('partie', options.partie.toString());
     if (options.chapitre) params.append('chapitre', options.chapitre.toString());
+    if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
+    
+    // Construire l'URL complète avec le token si fourni
+    // Note: L'utilisation du token dans l'URL n'est pas une pratique recommandée pour la sécurité
+    // mais c'est un contournement pour EventSource qui ne supporte pas les headers
+    if (token) {
+      params.append('_token', token);
+    }
+    
+    // URL finale pour le streaming
+    const streamUrl = `${API_URL}/stream?${params}`;
     
     // Créer l'EventSource pour le streaming
-    const eventSource = new EventSource(`${API_URL}/stream?${params}`);
+    // EventSource standard ne supporte pas les headers d'authentification
+    const eventSource = new EventSource(streamUrl);
     
     // Événement de début de streaming
     eventSource.addEventListener('start', (event: MessageEvent) => {

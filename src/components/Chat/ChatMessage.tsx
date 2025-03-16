@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Message } from '../../types';
 import { FaChevronDown, FaChevronUp, FaUser } from 'react-icons/fa';
+import MessageFeedback from './MessageFeedback';
 
 interface ChatMessageProps {
   message: Message;
@@ -65,6 +66,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
                 </div>
               )}
             </div>
+          )}
+          
+          {/* Composant de feedback pour les messages de l'assistant */}
+          {isAssistant && !isUser && (
+            <MessageFeedback 
+              messageId={message.id} 
+              existingFeedback={message.feedback}
+            />
           )}
         </div>
       </div>

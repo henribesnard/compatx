@@ -10,8 +10,8 @@ body {
 
 .sidebar-conversation {
   padding: 0.75rem;
-  border-radius: 0.125rem;
-  margin-bottom: 0.5rem;
+  border-radius: 0.25rem;
+  margin-bottom: 0.25rem;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -20,4 +20,93 @@ body {
   color: #4b5563; /* text-gray-600 */
   transition: all 0.2s;
 }
-/* ... et ainsi de suite pour les autres classes */
+
+.sidebar-conversation.active {
+  background-color: #e6f7f5; /* bg-primary-light */
+  color: #0e766e; /* text-primary */
+  font-weight: 500;
+}
+
+.chat-message {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.message-bubble {
+  max-width: 85%;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.user-bubble {
+  background-color: #e6f7f5; /* bg-primary-light */
+  color: #0e766e; /* text-primary */
+  border-top-right-radius: 0;
+}
+
+.assistant-bubble {
+  background-color: #f9fafb; /* bg-gray-50 */
+  border: 1px solid #e5e7eb; /* border-gray-200 */
+  border-top-left-radius: 0;
+}
+
+/* Réinitialiser les marges pour le dernier enfant des bulles de message */
+.message-bubble > :last-child {
+  margin-bottom: 0;
+}
+
+/* Animation pour l'indicateur de chargement */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Styles pour le composant de feedback */
+.rating-star {
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.rating-star:hover {
+  color: #f59e0b; /* text-yellow-500 */
+}
+
+.rating-star.selected {
+  color: #f59e0b; /* text-yellow-500 */
+}
+
+/* Styles pour les alertes et notifications */
+.alert {
+  padding: 0.75rem 1rem;
+  border-radius: 0.375rem;
+  margin-bottom: 1rem;
+}
+
+.alert-success {
+  background-color: #d1fae5; /* bg-green-100 */
+  color: #065f46; /* text-green-800 */
+  border: 1px solid #a7f3d0; /* border-green-200 */
+}
+
+.alert-error {
+  background-color: #fee2e2; /* bg-red-100 */
+  color: #991b1b; /* text-red-800 */
+  border: 1px solid #fecaca; /* border-red-200 */
+}
+
+.alert-info {
+  background-color: #e0f2fe; /* bg-blue-100 */
+  color: #1e40af; /* text-blue-800 */
+  border: 1px solid #bfdbfe; /* border-blue-200 */
+}
