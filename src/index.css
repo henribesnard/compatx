@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  color: #1f2937; /* Équivalent à text-gray-800 */
+  background-color: #f9fafb; /* Équivalent à bg-gray-50 */
+  font-family: 'Inter', sans-serif;
+}
+
+.sidebar-conversation {
+  padding: 0.75rem;
+  border-radius: 0.125rem;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.875rem;
+  color: #4b5563; /* text-gray-600 */
+  transition: all 0.2s;
+}
+/* ... et ainsi de suite pour les autres classes */
