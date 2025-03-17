@@ -69,6 +69,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
     
     try {
       await login(credentials);
+      setTimeout(() => onCancel(), 100);
     } catch (error) {
       // Les erreurs sont déjà gérées par le contexte d'authentification
       console.error('Login error:', error);

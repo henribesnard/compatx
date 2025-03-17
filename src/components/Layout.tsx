@@ -24,8 +24,12 @@ const Layout: React.FC = () => {
     if (token && email && !isAuthenticated) {
       setInitialAuthForm('reset-password');
       setAuthModalOpen(true);
+    } else if (isAuthenticated && authModalOpen) {
+      // Fermer le modal si déjà authentifié
+      setAuthModalOpen(false);
     }
-  }, [location, isAuthenticated]);
+    
+  }, [location, isAuthenticated,authModalOpen]);
 
   // Afficher un écran de chargement
   if (isLoading) {

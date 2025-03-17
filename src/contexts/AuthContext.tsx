@@ -15,6 +15,7 @@ interface AuthContextType {
   resetPassword: (data: ResetPasswordData) => Promise<void>;
   error: string | null;
   clearError: () => void;
+  closeAuthModal?: () => void; // Nouvelle propriété pour fermer le modal
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,34 +23,43 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const TOKEN_KEY = 'comptax_auth_token';
 const USER_DATA_KEY = 'comptax_user_data';
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface AuthProviderProps {
+  children: React.ReactNode;
+  closeAuthModal?: () => void; // Fonction optionnelle pour fermer le modal d'authentification
+}
+
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children, closeAuthModal }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Charger l'état d'authentification au démarrage
+  // Vérifier l'état d'authentification au chargement initial
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem(TOKEN_KEY);
-      const userData = localStorage.getItem(USER_DATA_KEY);
-      
-      if (token && userData) {
-        try {
-          const parsedUser = JSON.parse(userData) as User;
-          setUser(parsedUser);
-          setIsAuthenticated(true);
-          
-          // Vérifier que le token est valide avec le backend
-          await fetchUserProfile(token);
-        } catch (error) {
-          console.error('Error parsing stored user data or verifying token:', error);
-          // En cas d'erreur, réinitialiser
-          await handleLogout();
+      try {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const userData = localStorage.getItem(USER_DATA_KEY);
+        
+        if (token && userData) {
+          try {
+            const parsedUser = JSON.parse(userData) as User;
+            setUser(parsedUser);
+            setIsAuthenticated(true);
+            
+            // Vérifier que le token est valide avec le backend
+            await fetchUserProfile(token);
+          } catch (error) {
+            console.error('Error parsing stored user data or verifying token:', error);
+            // En cas d'erreur, réinitialiser
+            await handleLogout();
+          }
         }
+      } catch (error) {
+        console.error('Error checking authentication status:', error);
+      } finally {
+        setIsLoading(false);
       }
-      
-      setIsLoading(false);
     };
     
     checkAuth();
@@ -82,6 +92,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setUser(response.user);
       setIsAuthenticated(true);
+      
+      // Fermer le modal de connexion après une authentification réussie
+      if (closeAuthModal && typeof closeAuthModal === 'function') {
+        closeAuthModal();
+      }
     } catch (error) {
       console.error('Login error:', error);
       if (error instanceof Error) {
@@ -107,6 +122,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: data.email, 
         password: data.password 
       });
+      
+      // Le modal sera fermé par la fonction login() si elle réussit
     } catch (error) {
       console.error('Registration error:', error);
       if (error instanceof Error) {
@@ -121,23 +138,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
   
   const handleLogout = async () => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    
-    // Appeler l'API de déconnexion si un token existe
-    if (token) {
-      try {
-        await authApi.logout(token);
-      } catch (error) {
-        console.error('Error during logout:', error);
-        // Continuer malgré l'erreur car on veut déconnecter localement
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      
+      // Appeler l'API de déconnexion si un token existe
+      if (token) {
+        try {
+          await authApi.logout(token);
+        } catch (error) {
+          console.error('Error during logout API call:', error);
+          // Continuer malgré l'erreur car on veut déconnecter localement
+        }
       }
+    } catch (error) {
+      console.error('Error during logout process:', error);
+    } finally {
+      // Supprimer les données locales dans tous les cas
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_DATA_KEY);
+      setIsAuthenticated(false);
+      setUser(null);
     }
-    
-    // Supprimer les données locales
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_DATA_KEY);
-    setIsAuthenticated(false);
-    setUser(null);
   };
   
   const getToken = (): string | null => {
@@ -169,6 +190,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     try {
       await authApi.resetPassword(data);
+      
+      // Fermer le modal après une réinitialisation réussie
+      if (closeAuthModal && typeof closeAuthModal === 'function') {
+        closeAuthModal();
+      }
     } catch (error) {
       console.error('Password reset error:', error);
       if (error instanceof Error) {
@@ -198,7 +224,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       requestPasswordReset,
       resetPassword,
       error,
-      clearError
+      clearError,
+      closeAuthModal
     }}>
       {children}
     </AuthContext.Provider>

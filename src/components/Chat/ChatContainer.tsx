@@ -14,6 +14,10 @@ const ChatContainer: React.FC = () => {
   const [streamingText, setStreamingText] = useState('');
   const [streamingTextClass, setStreamingTextClass] = useState('');
   const abortControllerRef = useRef<(() => void) | null>(null);
+  // Référence pour stocker la réponse finale
+  const finalResponseRef = useRef<{answer: string, sources?: ApiSource[]}>({answer: ''});
+  // Référence pour conserver le contenu du message utilisateur
+  const userMessageRef = useRef<string>('');
 
   // Fonction pour adapter le format des sources de l'API au format de notre app
   const adaptSources = (apiSources: ApiSource[]): Source[] => {
@@ -44,13 +48,29 @@ const ChatContainer: React.FC = () => {
     };
   }, []);
 
+  // Vérifier si un message utilisateur avec un contenu spécifique existe déjà
+  const hasUserMessageWithContent = (content: string): boolean => {
+    if (!currentConversation) return false;
+    
+    // Filtrer les messages utilisateur et vérifier leur contenu
+    return currentConversation.messages.some(
+      msg => msg.role === 'user' && msg.content === content
+    );
+  };
+
   const handleSendMessage = async (message: string) => {
     if (!message.trim() || isLoading) return;
     
     console.log("Sending message:", message);
     
-    // Ajouter le message de l'utilisateur
-    addMessage(message, 'user');
+    // Stocker le message de l'utilisateur dans la référence
+    userMessageRef.current = message;
+    
+    // Vérifier que le message n'existe pas déjà avant de l'ajouter
+    if (!hasUserMessageWithContent(message)) {
+      // Ajouter le message de l'utilisateur
+      addMessage(message, 'user');
+    }
     
     // Préparer pour le streaming
     setIsLoading(true);
@@ -63,6 +83,9 @@ const ChatContainer: React.FC = () => {
       abortControllerRef.current();
       abortControllerRef.current = null;
     }
+    
+    // Réinitialiser la référence de réponse finale
+    finalResponseRef.current = {answer: ''};
     
     try {
       // Récupérer le token si authentifié
@@ -92,39 +115,81 @@ const ChatContainer: React.FC = () => {
             console.log(`Received chunk: "${text}" (${Math.round(completion * 100)}%)`);
             setStreamingText(prev => {
               const newText = prev + text;
+              // Stocker aussi dans la référence pour éviter les pertes
+              finalResponseRef.current.answer = newText;
               return newText;
             });
           },
           onComplete: (data) => {
             console.log('Streaming complete, full answer:', data.answer);
             
-            // Streaming terminé, adapter les sources et ajouter le message complet
-            const adaptedSources = data.sources ? adaptSources(data.sources) : undefined;
-            
-            // Ajouter le message complet de l'assistant à la conversation
-            addMessage(data.answer, 'assistant', adaptedSources);
+            // IMPORTANT: Stocker les données complètes dans la référence
+            finalResponseRef.current = {
+              answer: data.answer || finalResponseRef.current.answer,
+              sources: data.sources
+            };
             
             // Ajouter la classe de transition pour un effet de fondu
             setStreamingTextClass('fade-out');
             
-            // Réinitialiser l'état de streaming avec un délai pour une transition fluide
+            // Utiliser un délai pour permettre l'effet de transition
             setTimeout(() => {
-              setStreamingText('');
-              setStreamingTextClass('');
-              setIsLoading(false);
-              
-              // Nettoyer la référence
-              abortControllerRef.current = null;
-            }, 300); // Délai correspondant à la durée de la transition CSS
+              try {
+                // S'assurer que le message utilisateur existe toujours
+                if (!hasUserMessageWithContent(userMessageRef.current)) {
+                  console.log("Re-adding user message before assistant response");
+                  addMessage(userMessageRef.current, 'user');
+                }
+                
+                // Récupérer la réponse finale depuis la référence
+                const finalAnswer = finalResponseRef.current.answer;
+                const adaptedSources = finalResponseRef.current.sources 
+                  ? adaptSources(finalResponseRef.current.sources) 
+                  : undefined;
+                
+                // Ajouter le message AVANT de réinitialiser l'état
+                if (finalAnswer) {
+                  console.log('Adding final message to conversation:', finalAnswer);
+                  addMessage(finalAnswer, 'assistant', adaptedSources);
+                }
+                
+                // Ensuite seulement réinitialiser les états
+                setStreamingText('');
+                setStreamingTextClass('');
+                
+              } catch (error) {
+                console.error('Error adding final message:', error);
+              } finally {
+                // Toujours réinitialiser l'état de chargement
+                setIsLoading(false);
+                abortControllerRef.current = null;
+              }
+            }, 350); // Un peu plus que la durée de la transition CSS
           },
           onError: (error) => {
             console.error('Streaming error:', error);
             
-            // Ajouter un message d'erreur à la conversation
-            addMessage(
-              "Désolé, une erreur s'est produite lors de la génération de la réponse. Veuillez réessayer.",
-              'assistant'
-            );
+            // Conserver la partie déjà générée si disponible
+            const partialResponse = finalResponseRef.current.answer;
+            
+            // Vérifier que le message utilisateur existe
+            if (!hasUserMessageWithContent(userMessageRef.current)) {
+              addMessage(userMessageRef.current, 'user');
+            }
+            
+            if (partialResponse && partialResponse.length > 0) {
+              // Si nous avons déjà une réponse partielle, l'utiliser
+              addMessage(
+                partialResponse + "\n\n(Remarque: La génération a été interrompue en raison d'une erreur.)",
+                'assistant'
+              );
+            } else {
+              // Sinon, afficher un message d'erreur générique
+              addMessage(
+                "Désolé, une erreur s'est produite lors de la génération de la réponse. Veuillez réessayer.",
+                'assistant'
+              );
+            }
             
             // Réinitialiser l'état de streaming
             setStreamingText('');
@@ -143,6 +208,11 @@ const ChatContainer: React.FC = () => {
       
     } catch (error) {
       console.error('Error initiating streaming:', error);
+      
+      // Vérifier que le message utilisateur existe
+      if (!hasUserMessageWithContent(userMessageRef.current)) {
+        addMessage(userMessageRef.current, 'user');
+      }
       
       // Ajouter un message d'erreur à la conversation
       addMessage(
