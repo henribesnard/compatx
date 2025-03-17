@@ -15,7 +15,6 @@ const ChatContainer: React.FC = () => {
   const [streamingTextClass, setStreamingTextClass] = useState('');
   const abortControllerRef = useRef<(() => void) | null>(null);
   const finalResponseRef = useRef<{answer: string, sources?: ApiSource[]}>({answer: ''});
-  const userMessageRef = useRef<string>('');
 
   // Fonction pour adapter le format des sources de l'API au format de notre app
   const adaptSources = (apiSources: ApiSource[]): Source[] => {
@@ -51,12 +50,10 @@ const ChatContainer: React.FC = () => {
     
     console.log("Sending message:", message);
     
-    // Stocker le message de l'utilisateur dans la référence
-    userMessageRef.current = message;
-    
-    // Ajouter le message de l'utilisateur - IMPORTANT: On ne vérifie plus s'il existe déjà
-    const userMessageAdded = addMessage(message, 'user', undefined, true);
-    console.log("User message added to conversation:", userMessageAdded);
+    // Ajouter le message de l'utilisateur à la conversation
+    // Cette fois, nous gardons le message utilisateur dans la conversation même après génération
+    const userMessageId = addMessage(message, 'user', undefined, true);
+    console.log("User message added to conversation with ID:", userMessageId);
     
     // Préparer pour le streaming
     setIsLoading(true);
@@ -125,9 +122,10 @@ const ChatContainer: React.FC = () => {
                   ? adaptSources(finalResponseRef.current.sources) 
                   : undefined;
                 
-                // Ajouter le message de l'assistant SANS toucher au message utilisateur
+                // Ajouter le message de l'assistant sans toucher au message utilisateur
                 if (finalAnswer) {
                   console.log('Adding final assistant message to conversation:', finalAnswer.substring(0, 50) + '...');
+                  // Nous n'avons plus besoin de modifier ou supprimer le message utilisateur ici
                   addMessage(finalAnswer, 'assistant', adaptedSources);
                 }
                 

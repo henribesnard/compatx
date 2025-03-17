@@ -23,7 +23,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   }
   
   return (
-    <div className={`chat-message ${isUser ? 'justify-end' : ''}`}>
+    <div className="chat-message flex gap-3 mb-6">
+      {/* Avatar de l'assistant (à gauche pour les messages de l'assistant) */}
       {isAssistant && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-light flex items-center justify-center text-primary">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -32,7 +33,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
       )}
       
-      <div className={`flex flex-col ${isUser ? 'items-end' : ''}`}>
+      {/* Contenu du message */}
+      <div className={`flex flex-col ${isUser ? 'items-end ml-auto mr-3' : ''}`}>
         <div className="mb-1">
           <span className="text-xs font-medium text-gray-500">
             {isUser ? 'Vous' : 'Assistant ComptaX'}
@@ -42,6 +44,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         <div className={`message-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
           <div className="whitespace-pre-wrap">{message.content}</div>
           
+          {/* Section des sources (uniquement pour les messages de l'assistant) */}
           {isAssistant && message.sources && message.sources.length > 0 && (
             <div className="mt-3 border-t border-gray-200 pt-3">
               <button 
@@ -68,8 +71,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             </div>
           )}
           
-          {/* Composant de feedback pour les messages de l'assistant */}
-          {isAssistant && !isUser && (
+          {/* Composant de feedback (uniquement pour les messages de l'assistant) */}
+          {isAssistant && (
             <MessageFeedback 
               messageId={message.id} 
               existingFeedback={message.feedback}
@@ -78,6 +81,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
       </div>
       
+      {/* Avatar de l'utilisateur (à droite pour les messages de l'utilisateur) */}
       {isUser && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
           <FaUser size={14} />

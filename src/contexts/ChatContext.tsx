@@ -1,4 +1,3 @@
-// src/contexts/ChatContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Conversation, Message, Source } from '../types';
@@ -10,7 +9,7 @@ interface ChatContextType {
   currentConversation: Conversation | null;
   createNewConversation: () => void;
   selectConversation: (id: string) => void;
-  addMessage: (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[], force?: boolean) => void;
+  addMessage: (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[], force?: boolean) => string;
   updateConversationTitle: (id: string, title: string) => void;
   deleteConversation: (id: string) => void;
   isLoadingConversations: boolean;
@@ -390,8 +389,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Ajouter un message à la conversation courante
-  const addMessage = async (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[], force: boolean = false) => {
-    if (!currentConversation) return;
+  // Modifié pour retourner l'ID du message ajouté
+  const addMessage = (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[], force: boolean = false): string => {
+    if (!currentConversation) return '';
     
     console.log(`Adding message as ${role}: ${content.substring(0, 50)}...`);
     
@@ -401,7 +401,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Vérifier si un message identique existe déjà (éviter les doublons)
     if (!force && hasMessageWithContent(updatedConversation, content, role)) {
       console.log(`Message with identical content already exists, skipping addition`);
-      return;
+      return '';
     }
     
     const newMessage: Message = {
@@ -442,7 +442,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // La conversation existe déjà sur le serveur
           try {
             // Ajouter le message au serveur
-            const response = await axios.post<{
+            const response = axios.post<{
               conversation_id: string;
               user_message_id: string;
               ia_message_id: string;
@@ -456,28 +456,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   Authorization: `Bearer ${token}`
                 }
               }
-            );
-            
-            // Mettre à jour les IDs des messages avec ceux du serveur
-            if (response.data.user_message_id && response.data.ia_message_id) {
-              newMessage.serverId = role === 'user' ? response.data.user_message_id : response.data.ia_message_id;
-              
-              // Mettre à jour l'état à nouveau avec les IDs du serveur
-              const updatedWithServerIds = {...updatedConversation};
-              const messageIndex = updatedWithServerIds.messages.findIndex(m => m.id === newMessage.id);
-              if (messageIndex !== -1) {
-                updatedWithServerIds.messages[messageIndex].serverId = newMessage.serverId;
+            ).then(response => {
+              // Mettre à jour les IDs des messages avec ceux du serveur
+              if (response.data.user_message_id && response.data.ia_message_id) {
+                // Créer une copie pour éviter les mutations directes
+                const latestConversation = JSON.parse(JSON.stringify(currentConversation)) as Conversation;
+                const messageIndex = latestConversation.messages.findIndex(m => m.id === newMessage.id);
+                
+                if (messageIndex !== -1) {
+                  latestConversation.messages[messageIndex].serverId = 
+                    role === 'user' ? response.data.user_message_id : response.data.ia_message_id;
+                  
+                  setCurrentConversation(latestConversation);
+                  setConversations(prevConvs => 
+                    prevConvs.map(conv => 
+                      conv.id === latestConversation.id ? latestConversation : conv
+                    )
+                  );
+                }
               }
-              
-              setCurrentConversation(updatedWithServerIds);
-              setConversations(conversations.map(conv => 
-                conv.id === updatedWithServerIds.id ? updatedWithServerIds : conv
-              ));
-            }
+            }).catch(error => {
+              console.error('Error adding message to server:', error);
+            });
             
             // Mettre à jour le titre sur le serveur si nécessaire
             if (updatedTitle !== currentConversation.title) {
-              await axios.put(
+              axios.put(
                 `http://localhost:8080/conversations/${updatedConversation.serverId}`,
                 {
                   title: updatedTitle
@@ -487,7 +491,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     Authorization: `Bearer ${token}`
                   }
                 }
-              );
+              ).catch(error => {
+                console.error('Error updating title on server:', error);
+              });
             }
           } catch (error) {
             console.error('Error adding message to server:', error);
@@ -495,7 +501,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           // Créer une nouvelle conversation sur le serveur avec le message
           try {
-            const response = await axios.post<{
+            axios.post<{
               conversation_id: string;
               user_message_id: string;
               ia_message_id: string;
@@ -511,27 +517,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                   Authorization: `Bearer ${token}`
                 }
               }
-            );
-            
-            // Mettre à jour avec l'ID du serveur
-            const updatedWithServerIds = {...updatedConversation};
-            updatedWithServerIds.serverId = response.data.conversation_id;
-            updatedWithServerIds.syncedWithServer = true;
-            
-            // Mettre à jour les IDs des messages
-            if (response.data.user_message_id && response.data.ia_message_id) {
-              const messageIndex = updatedWithServerIds.messages.findIndex(m => m.id === newMessage.id);
-              if (messageIndex !== -1) {
-                updatedWithServerIds.messages[messageIndex].serverId = 
-                  role === 'user' ? response.data.user_message_id : response.data.ia_message_id;
+            ).then(response => {
+              // Mettre à jour avec l'ID du serveur
+              // Créer une copie pour éviter les mutations directes
+              const latestConversation = JSON.parse(JSON.stringify(currentConversation)) as Conversation;
+              latestConversation.serverId = response.data.conversation_id;
+              latestConversation.syncedWithServer = true;
+              
+              // Mettre à jour les IDs des messages
+              if (response.data.user_message_id && response.data.ia_message_id) {
+                const messageIndex = latestConversation.messages.findIndex(m => m.id === newMessage.id);
+                if (messageIndex !== -1) {
+                  latestConversation.messages[messageIndex].serverId = 
+                    role === 'user' ? response.data.user_message_id : response.data.ia_message_id;
+                }
               }
-            }
-            
-            // Mettre à jour l'état avec les nouvelles informations
-            setCurrentConversation(updatedWithServerIds);
-            setConversations(conversations.map(conv => 
-              conv.id === updatedWithServerIds.id ? updatedWithServerIds : conv
-            ));
+              
+              // Mettre à jour l'état avec les nouvelles informations
+              setCurrentConversation(latestConversation);
+              setConversations(prevConvs => 
+                prevConvs.map(conv => 
+                  conv.id === latestConversation.id ? latestConversation : conv
+                )
+              );
+            }).catch(error => {
+              console.error('Error creating conversation with message on server:', error);
+            });
           } catch (error) {
             console.error('Error creating conversation with message on server:', error);
           }
@@ -540,6 +551,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error syncing with server:', error);
       }
     }
+    
+    // Retourner l'ID du message ajouté
+    return newMessage.id;
   };
 
   // Mettre à jour le titre d'une conversation
