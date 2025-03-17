@@ -1,5 +1,5 @@
 // src/api/ohada.ts
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ApiErrorResponse } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -203,15 +203,14 @@ export const ohadaApi = {
     }
   },
   
-  // Fonction pour le streaming de réponses
+  // Fonction pour le streaming de réponses - implémentation avec fetch
   streamQuery(
     queryText: string, 
     options: Partial<QueryRequest> = {},
     callbacks: StreamCallbacks,
     token?: string | null
   ): () => void {
-    
-    // Construire l'URL avec les paramètres
+    // Construire l'URL avec les paramètres (sans le token)
     const params = new URLSearchParams({
       query: queryText,
       include_sources: (options.include_sources !== false).toString(),
@@ -222,81 +221,189 @@ export const ohadaApi = {
     if (options.chapitre) params.append('chapitre', options.chapitre.toString());
     if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
     
-    // Pour l'authentification dans SSE, on passe le token comme paramètre
-    // Ce n'est pas idéal pour la sécurité, mais c'est une limitation d'EventSource
+    const url = `${API_URL}/stream?${params}`;
+    console.log("Stream URL:", url);
+    
+    // Créer un contrôleur d'abandon
+    const controller = new AbortController();
+    
+    // Lancer la requête fetch en mode streaming
+    (async () => {
+      try {
+        // Entêtes avec authorization comme dans Postman
+        const headers: Record<string, string> = {
+          'Accept': 'text/event-stream'
+        };
+        
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        console.log("Fetch request with headers:", headers);
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: controller.signal
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        
+        // Vérifier que le body est disponible
+        if (!response.body) {
+          throw new Error('ReadableStream not supported in this browser.');
+        }
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let currentEvent = '';
+        
+        console.log("Stream connection established successfully");
+        
+        // Boucle de lecture du stream
+        while (true) {
+          const { value, done } = await reader.read();
+          
+          if (done) {
+            console.log('Stream complete');
+            break;
+          }
+          
+          const chunk = decoder.decode(value, { stream: true });
+          console.log("Raw chunk received:", chunk);
+          buffer += chunk;
+          
+          // Traiter les lignes complètes
+          let lineEnd;
+          while ((lineEnd = buffer.indexOf('\n')) >= 0) {
+            const line = buffer.slice(0, lineEnd).trim();
+            buffer = buffer.slice(lineEnd + 1);
+            
+            if (!line) continue;
+            
+            if (line.startsWith('event:')) {
+              currentEvent = line.slice(6).trim();
+              console.log("Event type:", currentEvent);
+            } else if (line.startsWith('data:')) {
+              const data = line.slice(5).trim();
+              console.log(`${currentEvent} data:`, data);
+              
+              try {
+                const parsedData = JSON.parse(data);
+                
+                // Gérer les différents types d'événements
+                switch(currentEvent) {
+                  case 'start':
+                    if (callbacks.onStart) callbacks.onStart(parsedData as StreamStartEvent);
+                    break;
+                  case 'progress':
+                    if (callbacks.onProgress) callbacks.onProgress(parsedData as StreamProgressEvent);
+                    break;
+                  case 'chunk':
+                    if (callbacks.onChunk) callbacks.onChunk(parsedData.text, parsedData.completion);
+                    break;
+                  case 'complete':
+                    if (callbacks.onComplete) callbacks.onComplete(parsedData as QueryResponse);
+                    return; // Fin du streaming
+                  case 'error':
+                    if (callbacks.onError) callbacks.onError(parsedData as StreamErrorEvent);
+                    return;
+                  default:
+                    // Si c'est un chunk sans événement spécifié
+                    if (parsedData.text !== undefined && parsedData.completion !== undefined) {
+                      if (callbacks.onChunk) callbacks.onChunk(parsedData.text, parsedData.completion);
+                    }
+                }
+              } catch (e) {
+                console.error('Error parsing event data:', e, data);
+              }
+            }
+          }
+        }
+      } catch (error: unknown) {
+        const typedError = error as Error;
+        if (typedError.name === 'AbortError') {
+          console.log('Stream aborted by user');
+        } else {
+          console.error('Stream error:', typedError);
+          if (callbacks.onError) {
+            // Type cast pour satisfaire TypeScript
+            callbacks.onError(typedError as unknown as Event);
+          }
+        }
+      }
+    })();
+    
+    // Retourner une fonction pour annuler le stream
+    return () => {
+      console.log("Aborting stream request");
+      controller.abort();
+    };
+  },
+  
+  // Version alternative avec axios pour comparaison
+  streamWithAxios(
+    queryText: string,
+    options: Partial<QueryRequest> = {},
+    callbacks: StreamCallbacks,
+    token?: string | null
+  ): () => void {
+    // Configuration similaire à l'exemple Postman
+    const params = new URLSearchParams({
+      query: queryText,
+      include_sources: (options.include_sources !== false).toString(),
+      n_results: (options.n_results || 5).toString(),
+    });
+    
+    if (options.partie) params.append('partie', options.partie.toString());
+    if (options.chapitre) params.append('chapitre', options.chapitre.toString());
+    if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
+    
+    const url = `${API_URL}/stream?${params}`;
+    console.log("Axios Stream URL:", url);
+    
+    // Configuration Axios similaire à Postman
+    const config: AxiosRequestConfig = {
+      method: 'get',
+      url: url,
+      headers: { 
+        'Accept': 'text/event-stream'
+      },
+      responseType: 'stream',
+      maxRedirects: 0
+    };
+    
     if (token) {
-      params.append('_token', token);
+      // Utiliser type assertion pour résoudre l'erreur TypeScript
+      (config.headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
     
-    // URL finale pour le streaming
-    const streamUrl = `${API_URL}/stream?${params}`;
+    // Créer un controller pour l'annulation
+    const controller = new AbortController();
     
-    // Créer l'EventSource pour le streaming
-    // EventSource standard ne supporte pas les headers d'authentification
-    const eventSource = new EventSource(streamUrl);
+    // Assigner le signal au config en utilisant une assertion de type
+    (config as unknown as { signal: AbortSignal }).signal = controller.signal;
     
-    // Événement de début de streaming
-    eventSource.addEventListener('start', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as StreamStartEvent;
-        if (callbacks.onStart) callbacks.onStart(data);
-      } catch (error) {
-        console.error('Error parsing start event:', error);
-      }
-    });
-    
-    // Événement de progression
-    eventSource.addEventListener('progress', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as StreamProgressEvent;
-        if (callbacks.onProgress) callbacks.onProgress(data);
-      } catch (error) {
-        console.error('Error parsing progress event:', error);
-      }
-    });
-    
-    // Événement de chunk (morceau de réponse)
-    eventSource.addEventListener('chunk', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as StreamChunkEvent;
-        if (callbacks.onChunk) callbacks.onChunk(data.text, data.completion);
-      } catch (error) {
-        console.error('Error parsing chunk event:', error);
-      }
-    });
-    
-    // Événement de complétion
-    eventSource.addEventListener('complete', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data) as QueryResponse;
-        if (callbacks.onComplete) callbacks.onComplete(data);
-        eventSource.close();
-      } catch (error) {
-        console.error('Error parsing complete event:', error);
-        eventSource.close();
-      }
-    });
-    
-    // Événement d'erreur
-    eventSource.addEventListener('error', (event: Event) => {
-      if (event instanceof MessageEvent) {
-        try {
-          const data = JSON.parse(event.data) as StreamErrorEvent;
-          if (callbacks.onError) callbacks.onError(data);
-        } catch (error) {
-          console.error('Error parsing error event:', error);
-          if (callbacks.onError) callbacks.onError(event);
+    // Faire la requête
+    axios(config)
+      .then(response => {
+        console.log("Axios stream response received");
+        // Note: Axios ne gère pas nativement les SSE comme fetch
+        // On ne traite pas directement response.data ici pour éviter l'erreur
+      })
+      .catch(error => {
+        console.error("Axios stream error:", error);
+        if (callbacks.onError) {
+          callbacks.onError(error as unknown as Event);
         }
-      } else {
-        console.error('SSE Error:', event);
-        if (callbacks.onError) callbacks.onError(event);
-      }
-      eventSource.close();
-    });
+      });
     
-    // Retourner une fonction pour fermer la connexion
     return () => {
-      eventSource.close();
+      console.log("Aborting axios stream");
+      controller.abort();
     };
   }
 };

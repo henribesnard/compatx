@@ -12,6 +12,7 @@ const ChatContainer: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingText, setStreamingText] = useState('');
+  const [streamingTextClass, setStreamingTextClass] = useState('');
   const abortControllerRef = useRef<(() => void) | null>(null);
 
   // Fonction pour adapter le format des sources de l'API au format de notre app
@@ -37,6 +38,7 @@ const ChatContainer: React.FC = () => {
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
+        console.log("Cleaning up streaming on component unmount");
         abortControllerRef.current();
       }
     };
@@ -45,16 +47,21 @@ const ChatContainer: React.FC = () => {
   const handleSendMessage = async (message: string) => {
     if (!message.trim() || isLoading) return;
     
+    console.log("Sending message:", message);
+    
     // Ajouter le message de l'utilisateur
     addMessage(message, 'user');
     
     // Préparer pour le streaming
     setIsLoading(true);
     setStreamingText('');
+    setStreamingTextClass('');
     
     // Vérifier s'il y a un streaming en cours et l'annuler
     if (abortControllerRef.current) {
+      console.log("Aborting previous streaming session");
       abortControllerRef.current();
+      abortControllerRef.current = null;
     }
     
     try {
@@ -67,6 +74,8 @@ const ChatContainer: React.FC = () => {
         save_to_conversation: currentConversation?.serverId || null
       };
       
+      console.log("Starting streaming request with options:", options);
+      
       // Utiliser l'API avec streaming
       const closeStream = ohadaApi.streamQuery(
         message,
@@ -76,26 +85,54 @@ const ChatContainer: React.FC = () => {
             console.log('Streaming started:', data);
           },
           onProgress: (data) => {
-            console.log('Progress:', data);
-            // Visualisation de la progression possible ici
+            console.log('Progress update:', data);
+            // Mettre à jour la barre de progression ou autres indicateurs visuels ici
           },
           onChunk: (text, completion) => {
-            setStreamingText(prev => prev + text);
-            // Utiliser completion pour visualiser la progression si nécessaire
-            console.log(`Progression: ${Math.round(completion * 100)}%`);
+            console.log(`Received chunk: "${text}" (${Math.round(completion * 100)}%)`);
+            setStreamingText(prev => {
+              const newText = prev + text;
+              return newText;
+            });
           },
           onComplete: (data) => {
+            console.log('Streaming complete, full answer:', data.answer);
+            
             // Streaming terminé, adapter les sources et ajouter le message complet
             const adaptedSources = data.sources ? adaptSources(data.sources) : undefined;
+            
+            // Ajouter le message complet de l'assistant à la conversation
             addMessage(data.answer, 'assistant', adaptedSources);
-            setStreamingText('');
-            setIsLoading(false);
+            
+            // Ajouter la classe de transition pour un effet de fondu
+            setStreamingTextClass('fade-out');
+            
+            // Réinitialiser l'état de streaming avec un délai pour une transition fluide
+            setTimeout(() => {
+              setStreamingText('');
+              setStreamingTextClass('');
+              setIsLoading(false);
+              
+              // Nettoyer la référence
+              abortControllerRef.current = null;
+            }, 300); // Délai correspondant à la durée de la transition CSS
           },
           onError: (error) => {
             console.error('Streaming error:', error);
-            addMessage("Désolé, une erreur s'est produite lors de la génération de la réponse.", 'assistant');
+            
+            // Ajouter un message d'erreur à la conversation
+            addMessage(
+              "Désolé, une erreur s'est produite lors de la génération de la réponse. Veuillez réessayer.",
+              'assistant'
+            );
+            
+            // Réinitialiser l'état de streaming
             setStreamingText('');
+            setStreamingTextClass('');
             setIsLoading(false);
+            
+            // Nettoyer la référence
+            abortControllerRef.current = null;
           }
         },
         token
@@ -105,9 +142,18 @@ const ChatContainer: React.FC = () => {
       abortControllerRef.current = closeStream;
       
     } catch (error) {
-      console.error('Error sending message:', error);
-      addMessage("Désolé, une erreur s'est produite lors de l'envoi de votre message.", 'assistant');
+      console.error('Error initiating streaming:', error);
+      
+      // Ajouter un message d'erreur à la conversation
+      addMessage(
+        "Désolé, une erreur s'est produite lors de l'envoi de votre message. Veuillez réessayer.",
+        'assistant'
+      );
+      
+      // Réinitialiser l'état de streaming
       setIsLoading(false);
+      setStreamingText('');
+      setStreamingTextClass('');
     }
   };
 
@@ -171,16 +217,16 @@ const ChatContainer: React.FC = () => {
                 </span>
               </div>
               
-              <div className="message-bubble assistant-bubble">
+              <div className={`message-bubble assistant-bubble ${streamingTextClass}`}>
                 <div className="whitespace-pre-wrap">{streamingText}</div>
-                {/* L'indicateur de saisie clignotant */}
-                <span className="animate-pulse">▌</span>
+                {/* L'indicateur de saisie clignotant - ne pas afficher pendant la transition */}
+                {!streamingTextClass && <span className="animate-pulse inline-block ml-1">▌</span>}
               </div>
             </div>
           </div>
         )}
         
-        {/* Indicateur de chargement */}
+        {/* Indicateur de chargement quand il n'y a pas encore de streaming */}
         {isLoading && !streamingText && (
           <div className="flex items-center gap-2 text-gray-500">
             <div className="animate-pulse flex space-x-1">

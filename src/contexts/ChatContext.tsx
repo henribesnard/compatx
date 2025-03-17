@@ -1,3 +1,4 @@
+// src/contexts/ChatContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { Conversation, Message, Source } from '../types';
@@ -93,7 +94,7 @@ interface ServerConversation {
   updated_at: string;
   message_count?: number;
   first_message?: string;
-  messages: Array<{
+  messages?: Array<{
     message_id: string;
     conversation_id: string;
     user_id: string;
@@ -136,7 +137,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
           
           // Convertir les conversations du serveur au format local
-          const serverConversations = response.data.map(convertServerConversation);
+          const serverConversations = response.data.map(serverConv => convertServerConversation(serverConv));
           
           // Fusionner les conversations locales et serveur
           // (les conversations serveur ont priorité en cas de conflit d'ID)
@@ -213,18 +214,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Convertir une conversation du format serveur au format local
   const convertServerConversation = (serverConv: ServerConversation): Conversation => {
+    // Vérifier que les champs nécessaires existent
+    const messages = serverConv.messages || [];
+    
     return {
       id: uuidv4(), // ID local unique
       serverId: serverConv.conversation_id, // Conserver l'ID du serveur
-      title: serverConv.title,
-      messages: serverConv.messages.map((msg) => ({
+      title: serverConv.title || "Nouvelle conversation",
+      messages: Array.isArray(messages) ? messages.map((msg) => ({
         id: uuidv4(),
         serverId: msg.message_id,
-        content: msg.content,
+        content: msg.content || "",
         role: msg.is_user ? 'user' : 'assistant',
-        timestamp: new Date(msg.created_at),
+        timestamp: new Date(msg.created_at || Date.now()),
         sources: msg.metadata?.sources ? msg.metadata.sources.map((src) => ({
-          documentId: src.document_id,
+          documentId: src.document_id || "",
           title: src.metadata?.title || 'Document sans titre',
           metadata: {
             partie: src.metadata?.partie,
@@ -236,19 +240,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           preview: src.preview || ''
         })) : undefined,
         feedback: msg.metadata?.feedback
-      })),
-      createdAt: new Date(serverConv.created_at),
-      updatedAt: new Date(serverConv.updated_at),
+      })) : [],
+      createdAt: new Date(serverConv.created_at || Date.now()),
+      updatedAt: new Date(serverConv.updated_at || Date.now()),
       syncedWithServer: true
     };
   };
 
   // Fusionner les conversations locales et serveur
   const mergeConversations = (localConvs: Conversation[], serverConvs: Conversation[]): Conversation[] => {
+    // S'assurer que les deux listes sont valides
+    if (!Array.isArray(localConvs)) localConvs = [];
+    if (!Array.isArray(serverConvs)) serverConvs = [];
+    
     const result = [...localConvs];
     
     // Ajouter les conversations du serveur
     serverConvs.forEach(serverConv => {
+      if (!serverConv || !serverConv.serverId) return;
+      
       const existingIndex = result.findIndex(c => c.serverId === serverConv.serverId);
       
       if (existingIndex >= 0) {
@@ -442,7 +452,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updatedAt: new Date()
     };
     
-    // Mettre à jour sur le serveur si authenticé et synchronisé
+    // Mettre à jour sur le serveur si authentifié et synchronisé
     if (isAuthenticated && conversation.serverId) {
       try {
         const token = getToken();

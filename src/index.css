@@ -110,3 +110,12 @@ body {
   color: #1e40af; /* text-blue-800 */
   border: 1px solid #bfdbfe; /* border-blue-200 */
 }
+
+/* Styles pour les transitions d'affichage du streaming */
+.message-bubble {
+  transition: opacity 0.3s ease;
+}
+
+.message-bubble.fade-out {
+  opacity: 0;
+}
