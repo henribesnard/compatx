@@ -14,9 +14,7 @@ const ChatContainer: React.FC = () => {
   const [streamingText, setStreamingText] = useState('');
   const [streamingTextClass, setStreamingTextClass] = useState('');
   const abortControllerRef = useRef<(() => void) | null>(null);
-  // Référence pour stocker la réponse finale
   const finalResponseRef = useRef<{answer: string, sources?: ApiSource[]}>({answer: ''});
-  // Référence pour conserver le contenu du message utilisateur
   const userMessageRef = useRef<string>('');
 
   // Fonction pour adapter le format des sources de l'API au format de notre app
@@ -48,16 +46,6 @@ const ChatContainer: React.FC = () => {
     };
   }, []);
 
-  // Vérifier si un message utilisateur avec un contenu spécifique existe déjà
-  const hasUserMessageWithContent = (content: string): boolean => {
-    if (!currentConversation) return false;
-    
-    // Filtrer les messages utilisateur et vérifier leur contenu
-    return currentConversation.messages.some(
-      msg => msg.role === 'user' && msg.content === content
-    );
-  };
-
   const handleSendMessage = async (message: string) => {
     if (!message.trim() || isLoading) return;
     
@@ -66,11 +54,9 @@ const ChatContainer: React.FC = () => {
     // Stocker le message de l'utilisateur dans la référence
     userMessageRef.current = message;
     
-    // Vérifier que le message n'existe pas déjà avant de l'ajouter
-    if (!hasUserMessageWithContent(message)) {
-      // Ajouter le message de l'utilisateur
-      addMessage(message, 'user');
-    }
+    // Ajouter le message de l'utilisateur - IMPORTANT: On ne vérifie plus s'il existe déjà
+    const userMessageAdded = addMessage(message, 'user');
+    console.log("User message added to conversation:", userMessageAdded);
     
     // Préparer pour le streaming
     setIsLoading(true);
@@ -109,13 +95,11 @@ const ChatContainer: React.FC = () => {
           },
           onProgress: (data) => {
             console.log('Progress update:', data);
-            // Mettre à jour la barre de progression ou autres indicateurs visuels ici
           },
           onChunk: (text, completion) => {
             console.log(`Received chunk: "${text}" (${Math.round(completion * 100)}%)`);
             setStreamingText(prev => {
               const newText = prev + text;
-              // Stocker aussi dans la référence pour éviter les pertes
               finalResponseRef.current.answer = newText;
               return newText;
             });
@@ -123,7 +107,7 @@ const ChatContainer: React.FC = () => {
           onComplete: (data) => {
             console.log('Streaming complete, full answer:', data.answer);
             
-            // IMPORTANT: Stocker les données complètes dans la référence
+            // Stocker les données complètes dans la référence
             finalResponseRef.current = {
               answer: data.answer || finalResponseRef.current.answer,
               sources: data.sources
@@ -135,47 +119,35 @@ const ChatContainer: React.FC = () => {
             // Utiliser un délai pour permettre l'effet de transition
             setTimeout(() => {
               try {
-                // S'assurer que le message utilisateur existe toujours
-                if (!hasUserMessageWithContent(userMessageRef.current)) {
-                  console.log("Re-adding user message before assistant response");
-                  addMessage(userMessageRef.current, 'user');
-                }
-                
                 // Récupérer la réponse finale depuis la référence
                 const finalAnswer = finalResponseRef.current.answer;
                 const adaptedSources = finalResponseRef.current.sources 
                   ? adaptSources(finalResponseRef.current.sources) 
                   : undefined;
                 
-                // Ajouter le message AVANT de réinitialiser l'état
+                // Ajouter le message de l'assistant SANS toucher au message utilisateur
                 if (finalAnswer) {
-                  console.log('Adding final message to conversation:', finalAnswer);
+                  console.log('Adding final assistant message to conversation:', finalAnswer.substring(0, 50) + '...');
                   addMessage(finalAnswer, 'assistant', adaptedSources);
                 }
                 
-                // Ensuite seulement réinitialiser les états
+                // Réinitialiser les états de streaming
                 setStreamingText('');
                 setStreamingTextClass('');
                 
               } catch (error) {
                 console.error('Error adding final message:', error);
               } finally {
-                // Toujours réinitialiser l'état de chargement
                 setIsLoading(false);
                 abortControllerRef.current = null;
               }
-            }, 350); // Un peu plus que la durée de la transition CSS
+            }, 350);
           },
           onError: (error) => {
             console.error('Streaming error:', error);
             
             // Conserver la partie déjà générée si disponible
             const partialResponse = finalResponseRef.current.answer;
-            
-            // Vérifier que le message utilisateur existe
-            if (!hasUserMessageWithContent(userMessageRef.current)) {
-              addMessage(userMessageRef.current, 'user');
-            }
             
             if (partialResponse && partialResponse.length > 0) {
               // Si nous avons déjà une réponse partielle, l'utiliser
@@ -208,11 +180,6 @@ const ChatContainer: React.FC = () => {
       
     } catch (error) {
       console.error('Error initiating streaming:', error);
-      
-      // Vérifier que le message utilisateur existe
-      if (!hasUserMessageWithContent(userMessageRef.current)) {
-        addMessage(userMessageRef.current, 'user');
-      }
       
       // Ajouter un message d'erreur à la conversation
       addMessage(
@@ -253,7 +220,7 @@ const ChatContainer: React.FC = () => {
   return (
     <>
       <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Assistant comptable OHADA</h2>
+        <h2 className="text-lg font-semibold">{currentConversation.title}</h2>
         <div className="flex gap-2">
           <button className="text-gray-500 hover:text-primary">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -289,7 +256,6 @@ const ChatContainer: React.FC = () => {
               
               <div className={`message-bubble assistant-bubble ${streamingTextClass}`}>
                 <div className="whitespace-pre-wrap">{streamingText}</div>
-                {/* L'indicateur de saisie clignotant - ne pas afficher pendant la transition */}
                 {!streamingTextClass && <span className="animate-pulse inline-block ml-1">▌</span>}
               </div>
             </div>

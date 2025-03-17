@@ -334,10 +334,52 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentConversation(newConversation);
   };
 
-  // Sélectionner une conversation
-  const selectConversation = (id: string) => {
-    const conversation = conversations.find(conv => conv.id === id) || null;
+  // Sélectionner une conversation et charger son contenu complet depuis le serveur
+  const selectConversation = async (id: string) => {
+    // Trouver la conversation localement
+    const conversation = conversations.find(conv => conv.id === id);
+    if (!conversation) return;
+    
+    // Mettre à jour immédiatement avec ce que nous avons localement
     setCurrentConversation(conversation);
+    
+    // Si la conversation est synchronisée avec le serveur et que l'utilisateur est authentifié
+    if (isAuthenticated && conversation.serverId) {
+      setIsLoadingConversations(true);
+      
+      try {
+        const token = getToken();
+        const response = await axios.get<ServerConversation>(
+          `http://localhost:8080/conversations/${conversation.serverId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+        
+        // Convertir la conversation du serveur
+        const updatedConversation = convertServerConversation(response.data);
+        
+        // Préserver l'ID local et tous autres attributs locaux importants
+        updatedConversation.id = conversation.id;
+        
+        // Mettre à jour l'état avec les données complètes du serveur
+        setCurrentConversation(updatedConversation);
+        
+        // Mettre également à jour la liste des conversations
+        setConversations(prevConversations => 
+          prevConversations.map(conv => 
+            conv.id === id ? updatedConversation : conv
+          )
+        );
+      } catch (error) {
+        console.error('Error fetching conversation details from server:', error);
+        // En cas d'erreur, on garde la version locale déjà affichée
+      } finally {
+        setIsLoadingConversations(false);
+      }
+    }
   };
 
   // Vérifier si un message avec un contenu spécifique existe dans une conversation
@@ -358,7 +400,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     // Vérifier si un message identique existe déjà (éviter les doublons)
     if (hasMessageWithContent(updatedConversation, content, role)) {
-      console.log(`Message with content already exists, skipping addition`);
+      console.log(`Message with identical content already exists, skipping addition`);
       return;
     }
     
