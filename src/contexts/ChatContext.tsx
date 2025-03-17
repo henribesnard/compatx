@@ -10,7 +10,7 @@ interface ChatContextType {
   currentConversation: Conversation | null;
   createNewConversation: () => void;
   selectConversation: (id: string) => void;
-  addMessage: (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[]) => void;
+  addMessage: (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[], force?: boolean) => void;
   updateConversationTitle: (id: string, title: string) => void;
   deleteConversation: (id: string) => void;
   isLoadingConversations: boolean;
@@ -390,7 +390,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Ajouter un message à la conversation courante
-  const addMessage = async (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[]) => {
+  const addMessage = async (content: string, role: 'user' | 'assistant' | 'system', sources?: Source[], force: boolean = false) => {
     if (!currentConversation) return;
     
     console.log(`Adding message as ${role}: ${content.substring(0, 50)}...`);
@@ -399,7 +399,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updatedConversation = JSON.parse(JSON.stringify(currentConversation)) as Conversation;
     
     // Vérifier si un message identique existe déjà (éviter les doublons)
-    if (hasMessageWithContent(updatedConversation, content, role)) {
+    if (!force && hasMessageWithContent(updatedConversation, content, role)) {
       console.log(`Message with identical content already exists, skipping addition`);
       return;
     }

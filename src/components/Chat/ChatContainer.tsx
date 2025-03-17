@@ -55,7 +55,7 @@ const ChatContainer: React.FC = () => {
     userMessageRef.current = message;
     
     // Ajouter le message de l'utilisateur - IMPORTANT: On ne vérifie plus s'il existe déjà
-    const userMessageAdded = addMessage(message, 'user');
+    const userMessageAdded = addMessage(message, 'user', undefined, true);
     console.log("User message added to conversation:", userMessageAdded);
     
     // Préparer pour le streaming
