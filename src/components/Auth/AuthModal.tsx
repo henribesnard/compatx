@@ -1,5 +1,5 @@
 // src/components/Auth/AuthModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FaTimes } from 'react-icons/fa';
 import LoginForm from './LoginForm';
 import RegisterForm from './RegisterForm';
@@ -21,24 +21,51 @@ const AuthModal: React.FC<AuthModalProps> = ({
   initialForm = 'login' 
 }) => {
   const [currentForm, setCurrentForm] = useState<AuthFormType>(initialForm);
+  const [isClosing, setIsClosing] = useState(false);
   const { isAuthenticated } = useAuth();
   
-  // Effet pour fermer automatiquement le modal lorsque l'utilisateur est authentifié
+  // Mise à jour du formulaire actif lorsque initialForm change
+  useEffect(() => {
+    if (isOpen && initialForm) {
+      setCurrentForm(initialForm);
+    }
+  }, [isOpen, initialForm]);
+  
+  // Effet pour fermer le modal lorsque l'utilisateur est authentifié
   useEffect(() => {
     if (isAuthenticated && isOpen) {
-      onClose();
+      handleClose();
     }
-  }, [isAuthenticated, isOpen, onClose]);
+  }, [isAuthenticated, isOpen]);
 
-  if (!isOpen) return null;
+  // Si le modal n'est pas ouvert, ne pas le rendre du tout
+  if (!isOpen && !isClosing) return null;
+  
+  // Fonction pour fermer avec animation
+  const handleClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      onClose();
+    }, 300);
+  }, [onClose]);
 
   const handleOpenLogin = () => setCurrentForm('login');
   const handleOpenRegister = () => setCurrentForm('register');
   const handleOpenForgotPassword = () => setCurrentForm('forgot-password');
   
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+    <div 
+      className={`fixed inset-0 flex items-center justify-center z-50 transition-opacity duration-300 ${
+        isClosing ? 'opacity-0' : 'opacity-100'
+      }`}
+    >
+      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={handleClose}></div>
+      <div 
+        className={`bg-white rounded-lg shadow-lg p-6 max-w-md w-full max-h-[90vh] overflow-y-auto relative transition-transform duration-300 ${
+          isClosing ? 'transform scale-95' : 'transform scale-100'
+        }`}
+      >
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-primary">
             {currentForm === 'login' && 'Connexion'}
@@ -47,8 +74,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
             {currentForm === 'reset-password' && 'Réinitialisation du mot de passe'}
           </h2>
           <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
+            onClick={handleClose}
+            className="text-gray-500 hover:text-gray-700 transition-colors"
           >
             <FaTimes size={20} />
           </button>
@@ -56,7 +83,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
         {currentForm === 'login' && (
           <LoginForm
-            onCancel={onClose}
+            onCancel={handleClose}
             onRegisterClick={handleOpenRegister}
             onForgotPasswordClick={handleOpenForgotPassword}
           />
@@ -64,21 +91,21 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
         {currentForm === 'register' && (
           <RegisterForm
-            onCancel={onClose}
+            onCancel={handleClose}
             onLoginClick={handleOpenLogin}
           />
         )}
 
         {currentForm === 'forgot-password' && (
           <ForgotPasswordForm
-            onCancel={onClose}
+            onCancel={handleClose}
             onLoginClick={handleOpenLogin}
           />
         )}
 
         {currentForm === 'reset-password' && (
           <PasswordResetForm
-            onCancel={onClose}
+            onCancel={handleClose}
             onLoginClick={handleOpenLogin}
           />
         )}

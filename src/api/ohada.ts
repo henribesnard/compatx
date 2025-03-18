@@ -1,4 +1,3 @@
-// src/api/ohada.ts
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { ApiErrorResponse } from '../types';
 
@@ -203,14 +202,14 @@ export const ohadaApi = {
     }
   },
   
-  // Fonction pour le streaming de réponses - implémentation avec fetch
+  // Fonction pour le streaming de réponses en utilisant EventSource
   streamQuery(
     queryText: string, 
     options: Partial<QueryRequest> = {},
     callbacks: StreamCallbacks,
     token?: string | null
   ): () => void {
-    // Construire l'URL avec les paramètres (sans le token)
+    // Construction des paramètres d'URL
     const params = new URLSearchParams({
       query: queryText,
       include_sources: (options.include_sources !== false).toString(),
@@ -223,6 +222,149 @@ export const ohadaApi = {
     
     const url = `${API_URL}/stream?${params}`;
     console.log("Stream URL:", url);
+    
+    // Variables pour gérer l'EventSource
+    let eventSource: EventSource | null = null;
+    
+    try {
+      // Si le token est fourni, l'ajouter à l'URL pour l'authentification
+      const authUrl = token ? `${url}&_token=${token}` : url;
+      
+      // Créer une nouvelle instance EventSource
+      eventSource = new EventSource(authUrl);
+      
+      // Configurer les gestionnaires d'événements
+      eventSource.onopen = () => {
+        console.log('Stream connection established');
+      };
+      
+      // Événement de démarrage
+      eventSource.addEventListener('start', (event) => {
+        if (callbacks.onStart && event.data) {
+          try {
+            const data = JSON.parse(event.data);
+            callbacks.onStart(data);
+          } catch (e) {
+            console.error('Error parsing start event:', e);
+          }
+        }
+      });
+      
+      // Événement de progression
+      eventSource.addEventListener('progress', (event) => {
+        if (callbacks.onProgress && event.data) {
+          try {
+            const data = JSON.parse(event.data);
+            callbacks.onProgress(data);
+          } catch (e) {
+            console.error('Error parsing progress event:', e);
+          }
+        }
+      });
+      
+      // Événement de fragment
+      eventSource.addEventListener('chunk', (event) => {
+        if (callbacks.onChunk && event.data) {
+          try {
+            const data = JSON.parse(event.data);
+            callbacks.onChunk(data.text, data.completion);
+          } catch (e) {
+            console.error('Error parsing chunk event:', e);
+          }
+        }
+      });
+      
+      // Événement de fin
+      eventSource.addEventListener('complete', (event) => {
+        if (callbacks.onComplete && event.data) {
+          try {
+            const data = JSON.parse(event.data);
+            callbacks.onComplete(data);
+          } catch (e) {
+            console.error('Error parsing complete event:', e);
+          }
+        }
+        
+        // Fermer la connexion
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      });
+      
+      // Événement d'erreur
+      eventSource.addEventListener('error', (event) => {
+        if (callbacks.onError) {
+          if (event instanceof MessageEvent && event.data) {
+            try {
+              const errorData = JSON.parse(event.data);
+              callbacks.onError(errorData);
+            } catch (e) {
+              callbacks.onError(event);
+            }
+          } else {
+            callbacks.onError(event);
+          }
+        }
+        
+        // Fermer la connexion en cas d'erreur
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      });
+      
+      // Gestion d'erreur générale de l'EventSource
+      eventSource.onerror = (event) => {
+        console.error('EventSource error:', event);
+        if (callbacks.onError) {
+          callbacks.onError(event);
+        }
+        
+        // Fermer la connexion
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+      };
+      
+    } catch (error) {
+      console.error('Error creating EventSource:', error);
+      if (callbacks.onError) {
+        callbacks.onError(error as Event);
+      }
+    }
+    
+    // Retourner une fonction pour fermer la connexion
+    return () => {
+      if (eventSource) {
+        console.log('Closing event source connection');
+        eventSource.close();
+        eventSource = null;
+      }
+    };
+  },
+  
+  // Implémentation de secours pour les navigateurs qui ne supportent pas EventSource
+  streamWithFetch(
+    queryText: string, 
+    options: Partial<QueryRequest> = {},
+    callbacks: StreamCallbacks,
+    token?: string | null
+  ): () => void {
+    // Construire l'URL similaire à streamQuery
+    const params = new URLSearchParams({
+      query: queryText,
+      include_sources: (options.include_sources !== false).toString(),
+      n_results: (options.n_results || 5).toString(),
+    });
+    
+    if (options.partie) params.append('partie', options.partie.toString());
+    if (options.chapitre) params.append('chapitre', options.chapitre.toString());
+    if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
+    
+    const url = `${API_URL}/stream?${params}`;
+    console.log("Fetch Stream URL:", url);
     
     // Créer un contrôleur d'abandon
     const controller = new AbortController();
@@ -330,7 +472,6 @@ export const ohadaApi = {
         } else {
           console.error('Stream error:', typedError);
           if (callbacks.onError) {
-            // Type cast pour satisfaire TypeScript
             callbacks.onError(typedError as unknown as Event);
           }
         }
@@ -340,69 +481,6 @@ export const ohadaApi = {
     // Retourner une fonction pour annuler le stream
     return () => {
       console.log("Aborting stream request");
-      controller.abort();
-    };
-  },
-  
-  // Version alternative avec axios pour comparaison
-  streamWithAxios(
-    queryText: string,
-    options: Partial<QueryRequest> = {},
-    callbacks: StreamCallbacks,
-    token?: string | null
-  ): () => void {
-    // Configuration similaire à l'exemple Postman
-    const params = new URLSearchParams({
-      query: queryText,
-      include_sources: (options.include_sources !== false).toString(),
-      n_results: (options.n_results || 5).toString(),
-    });
-    
-    if (options.partie) params.append('partie', options.partie.toString());
-    if (options.chapitre) params.append('chapitre', options.chapitre.toString());
-    if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
-    
-    const url = `${API_URL}/stream?${params}`;
-    console.log("Axios Stream URL:", url);
-    
-    // Configuration Axios similaire à Postman
-    const config: AxiosRequestConfig = {
-      method: 'get',
-      url: url,
-      headers: { 
-        'Accept': 'text/event-stream'
-      },
-      responseType: 'stream',
-      maxRedirects: 0
-    };
-    
-    if (token) {
-      // Utiliser type assertion pour résoudre l'erreur TypeScript
-      (config.headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-    }
-    
-    // Créer un controller pour l'annulation
-    const controller = new AbortController();
-    
-    // Assigner le signal au config en utilisant une assertion de type
-    (config as unknown as { signal: AbortSignal }).signal = controller.signal;
-    
-    // Faire la requête
-    axios(config)
-      .then(response => {
-        console.log("Axios stream response received");
-        // Note: Axios ne gère pas nativement les SSE comme fetch
-        // On ne traite pas directement response.data ici pour éviter l'erreur
-      })
-      .catch(error => {
-        console.error("Axios stream error:", error);
-        if (callbacks.onError) {
-          callbacks.onError(error as unknown as Event);
-        }
-      });
-    
-    return () => {
-      console.log("Aborting axios stream");
       controller.abort();
     };
   }

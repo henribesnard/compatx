@@ -1,6 +1,7 @@
+// src/components/Chat/ChatMessage.tsx
 import React, { useState } from 'react';
 import { Message } from '../../types';
-import { FaChevronDown, FaChevronUp, FaUser } from 'react-icons/fa';
+import { FaChevronDown, FaChevronUp, FaUser, FaStar } from 'react-icons/fa';
 import MessageFeedback from './MessageFeedback';
 
 interface ChatMessageProps {
@@ -23,8 +24,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   }
   
   return (
-    <div className="chat-message flex gap-3 mb-6">
-      {/* Avatar de l'assistant (à gauche pour les messages de l'assistant) */}
+    <div className={`chat-message ${isUser ? 'justify-end' : ''} animate-fadeIn`}>
       {isAssistant && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-light flex items-center justify-center text-primary">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -33,37 +33,44 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
       )}
       
-      {/* Contenu du message */}
-      <div className={`flex flex-col ${isUser ? 'items-end ml-auto mr-3' : ''}`}>
+      <div className={`flex flex-col ${isUser ? 'items-end' : ''}`}>
         <div className="mb-1">
           <span className="text-xs font-medium text-gray-500">
             {isUser ? 'Vous' : 'Assistant ComptaX'}
+          </span>
+          <span className="text-xs text-gray-400 ml-2">
+            {new Date(message.timestamp).toLocaleTimeString()}
           </span>
         </div>
         
         <div className={`message-bubble ${isUser ? 'user-bubble' : 'assistant-bubble'}`}>
           <div className="whitespace-pre-wrap">{message.content}</div>
           
-          {/* Section des sources (uniquement pour les messages de l'assistant) */}
           {isAssistant && message.sources && message.sources.length > 0 && (
             <div className="mt-3 border-t border-gray-200 pt-3">
               <button 
                 onClick={() => setShowSources(!showSources)}
-                className="flex items-center gap-1 text-xs text-primary font-medium"
+                className="flex items-center gap-1 text-xs text-primary font-medium hover:underline"
               >
-                Sources {showSources ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+                {showSources ? 'Masquer les sources' : 'Afficher les sources'} {showSources ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
               </button>
               
               {showSources && (
                 <div className="mt-2 space-y-2">
                   {message.sources.map((source, index) => (
-                    <div key={index} className="bg-white p-2 rounded-sm text-xs border border-gray-200">
-                      <div className="font-medium">{source.title}</div>
+                    <div key={index} className="bg-white p-2 rounded-sm text-xs border border-gray-200 transition-all hover:border-primary hover:shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">{source.title}</div>
+                        <div className="flex items-center gap-1 text-yellow-500">
+                          <FaStar size={12} />
+                          <span className="text-gray-600">{source.relevanceScore.toFixed(2)}</span>
+                        </div>
+                      </div>
                       <div className="text-gray-500 text-xs mt-1">
                         {source.metadata.partie && `Partie ${source.metadata.partie}, `}
                         {source.metadata.chapitre && `Chapitre ${source.metadata.chapitre}`}
                       </div>
-                      <div className="mt-1 text-gray-700">{source.preview}</div>
+                      <div className="mt-1 text-gray-700 italic">{source.preview}</div>
                     </div>
                   ))}
                 </div>
@@ -71,8 +78,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             </div>
           )}
           
-          {/* Composant de feedback (uniquement pour les messages de l'assistant) */}
-          {isAssistant && (
+          {/* Composant de feedback pour les messages de l'assistant */}
+          {isAssistant && !isUser && (
             <MessageFeedback 
               messageId={message.id} 
               existingFeedback={message.feedback}
@@ -81,7 +88,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         </div>
       </div>
       
-      {/* Avatar de l'utilisateur (à droite pour les messages de l'utilisateur) */}
       {isUser && (
         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500">
           <FaUser size={14} />

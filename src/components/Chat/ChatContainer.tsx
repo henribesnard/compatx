@@ -1,4 +1,5 @@
-import React, { useRef, useEffect, useState } from 'react';
+// src/components/Chat/ChatContainer.tsx
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { useChat } from '../../contexts/ChatContext';
 import { useAuth } from '../../contexts/AuthContext';
 import ChatMessage from './ChatMessage';
@@ -15,27 +16,37 @@ const ChatContainer: React.FC = () => {
   const [streamingTextClass, setStreamingTextClass] = useState('');
   const abortControllerRef = useRef<(() => void) | null>(null);
   const finalResponseRef = useRef<{answer: string, sources?: ApiSource[]}>({answer: ''});
-
-  // Fonction pour adapter le format des sources de l'API au format de notre app
-  const adaptSources = (apiSources: ApiSource[]): Source[] => {
+  const userMessageRef = useRef<string>('');
+  const [streamingProgress, setStreamingProgress] = useState(0);
+  const [streamingStatus, setStreamingStatus] = useState<string | null>(null);
+  
+  // Fonction pour adapter le format des sources API -> App
+  const adaptSources = useCallback((apiSources: ApiSource[]): Source[] => {
     return apiSources.map(source => ({
       documentId: source.document_id,
       title: source.metadata?.title || 'Document sans titre',
-      metadata: source.metadata || {},
+      metadata: {
+        partie: source.metadata?.partie,
+        chapitre: source.metadata?.chapitre,
+        title: source.metadata?.title,
+        documentType: source.metadata?.document_type
+      },
       relevanceScore: source.relevance_score || 0,
       preview: source.preview || ''
     }));
-  };
+  }, []);
 
-  const scrollToBottom = () => {
+  // Fonction pour faire défiler jusqu'au bas
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
+  // Effet pour scrolling automatique
   useEffect(() => {
     scrollToBottom();
-  }, [currentConversation?.messages, streamingText]);
+  }, [currentConversation?.messages, streamingText, scrollToBottom]);
 
-  // Annuler le streaming lors du démontage du composant
+  // Nettoyer le streaming lors du démontage
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
@@ -45,36 +56,40 @@ const ChatContainer: React.FC = () => {
     };
   }, []);
 
-  const handleSendMessage = async (message: string) => {
+  // Fonction pour envoyer un message
+  const handleSendMessage = useCallback(async (message: string) => {
     if (!message.trim() || isLoading) return;
     
     console.log("Sending message:", message);
     
-    // Ajouter le message de l'utilisateur à la conversation
-    // Cette fois, nous gardons le message utilisateur dans la conversation même après génération
-    const userMessageId = addMessage(message, 'user', undefined, true);
-    console.log("User message added to conversation with ID:", userMessageId);
+    // Stocker le message de l'utilisateur
+    userMessageRef.current = message;
+    
+    // Ajouter le message utilisateur à la conversation
+    addMessage(message, 'user', undefined, true);
     
     // Préparer pour le streaming
     setIsLoading(true);
     setStreamingText('');
     setStreamingTextClass('');
+    setStreamingProgress(0);
+    setStreamingStatus('Initialisation');
     
-    // Vérifier s'il y a un streaming en cours et l'annuler
+    // Annuler tout streaming en cours
     if (abortControllerRef.current) {
       console.log("Aborting previous streaming session");
       abortControllerRef.current();
       abortControllerRef.current = null;
     }
     
-    // Réinitialiser la référence de réponse finale
+    // Réinitialiser la référence
     finalResponseRef.current = {answer: ''};
     
     try {
-      // Récupérer le token si authentifié
+      // Token d'authentification
       const token = isAuthenticated ? getToken() : null;
       
-      // Préparer les options pour l'API
+      // Options pour l'API
       const options = {
         include_sources: true,
         save_to_conversation: currentConversation?.serverId || null
@@ -89,49 +104,61 @@ const ChatContainer: React.FC = () => {
         {
           onStart: (data) => {
             console.log('Streaming started:', data);
+            setStreamingStatus('Connexion établie');
           },
           onProgress: (data) => {
             console.log('Progress update:', data);
+            setStreamingProgress(data.completion || 0);
+            setStreamingStatus(data.status === 'retrieving' 
+              ? 'Recherche d\'informations' 
+              : data.status === 'analyzing' 
+                ? 'Analyse des documents' 
+                : data.status === 'generating' 
+                  ? 'Génération de la réponse' 
+                  : 'Traitement en cours');
           },
           onChunk: (text, completion) => {
-            console.log(`Received chunk: "${text}" (${Math.round(completion * 100)}%)`);
+            console.log(`Received chunk (${Math.round(completion * 100)}%)`);
             setStreamingText(prev => {
               const newText = prev + text;
               finalResponseRef.current.answer = newText;
               return newText;
             });
+            setStreamingProgress(completion || 0);
           },
           onComplete: (data) => {
-            console.log('Streaming complete, full answer:', data.answer);
+            console.log('Streaming complete, full answer received');
             
-            // Stocker les données complètes dans la référence
+            // Stocker la réponse complète
             finalResponseRef.current = {
               answer: data.answer || finalResponseRef.current.answer,
               sources: data.sources
             };
             
-            // Ajouter la classe de transition pour un effet de fondu
+            // Effet de transition
             setStreamingTextClass('fade-out');
+            setStreamingStatus('Réponse complète');
             
-            // Utiliser un délai pour permettre l'effet de transition
+            // Délai pour l'effet visuel
             setTimeout(() => {
               try {
-                // Récupérer la réponse finale depuis la référence
+                // Récupérer les données finales
                 const finalAnswer = finalResponseRef.current.answer;
                 const adaptedSources = finalResponseRef.current.sources 
                   ? adaptSources(finalResponseRef.current.sources) 
                   : undefined;
                 
-                // Ajouter le message de l'assistant sans toucher au message utilisateur
+                // Ajouter le message assistant
                 if (finalAnswer) {
-                  console.log('Adding final assistant message to conversation:', finalAnswer.substring(0, 50) + '...');
-                  // Nous n'avons plus besoin de modifier ou supprimer le message utilisateur ici
+                  console.log('Adding final assistant message');
                   addMessage(finalAnswer, 'assistant', adaptedSources);
                 }
                 
-                // Réinitialiser les états de streaming
+                // Réinitialiser les états
                 setStreamingText('');
                 setStreamingTextClass('');
+                setStreamingStatus(null);
+                setStreamingProgress(0);
                 
               } catch (error) {
                 console.error('Error adding final message:', error);
@@ -144,55 +171,57 @@ const ChatContainer: React.FC = () => {
           onError: (error) => {
             console.error('Streaming error:', error);
             
-            // Conserver la partie déjà générée si disponible
+            // Récupérer la réponse partielle si disponible
             const partialResponse = finalResponseRef.current.answer;
             
             if (partialResponse && partialResponse.length > 0) {
-              // Si nous avons déjà une réponse partielle, l'utiliser
+              // Utiliser la réponse partielle avec avertissement
               addMessage(
                 partialResponse + "\n\n(Remarque: La génération a été interrompue en raison d'une erreur.)",
                 'assistant'
               );
             } else {
-              // Sinon, afficher un message d'erreur générique
+              // Message d'erreur générique
               addMessage(
                 "Désolé, une erreur s'est produite lors de la génération de la réponse. Veuillez réessayer.",
                 'assistant'
               );
             }
             
-            // Réinitialiser l'état de streaming
+            // Réinitialiser les états
             setStreamingText('');
             setStreamingTextClass('');
+            setStreamingStatus(null);
+            setStreamingProgress(0);
             setIsLoading(false);
-            
-            // Nettoyer la référence
             abortControllerRef.current = null;
           }
         },
         token
       );
       
-      // Stocker la fonction pour fermer le stream
+      // Stocker la fonction pour annuler le stream
       abortControllerRef.current = closeStream;
       
     } catch (error) {
       console.error('Error initiating streaming:', error);
       
-      // Ajouter un message d'erreur à la conversation
+      // Message d'erreur
       addMessage(
         "Désolé, une erreur s'est produite lors de l'envoi de votre message. Veuillez réessayer.",
         'assistant'
       );
       
-      // Réinitialiser l'état de streaming
+      // Réinitialiser
       setIsLoading(false);
       setStreamingText('');
       setStreamingTextClass('');
+      setStreamingStatus(null);
+      setStreamingProgress(0);
     }
-  };
+  }, [isLoading, currentConversation, isAuthenticated, getToken, addMessage, adaptSources]);
 
-  // Si les conversations sont en cours de chargement
+  // Rendu pour les états de chargement et les conversions vides
   if (isLoadingConversations) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -236,7 +265,7 @@ const ChatContainer: React.FC = () => {
           />
         ))}
         
-        {/* Affichage du texte en streaming */}
+        {/* Message en streaming */}
         {streamingText && (
           <div className="chat-message">
             <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary-light flex items-center justify-center text-primary">
@@ -250,17 +279,32 @@ const ChatContainer: React.FC = () => {
                 <span className="text-xs font-medium text-gray-500">
                   Assistant ComptaX
                 </span>
+                {streamingStatus && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    {streamingStatus}
+                  </span>
+                )}
               </div>
               
               <div className={`message-bubble assistant-bubble ${streamingTextClass}`}>
                 <div className="whitespace-pre-wrap">{streamingText}</div>
                 {!streamingTextClass && <span className="animate-pulse inline-block ml-1">▌</span>}
+                
+                {/* Barre de progression */}
+                {streamingProgress > 0 && (
+                  <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
+                    <div 
+                      className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-in-out" 
+                      style={{ width: `${streamingProgress * 100}%` }}
+                    ></div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
         
-        {/* Indicateur de chargement quand il n'y a pas encore de streaming */}
+        {/* Indicateur de chargement initial */}
         {isLoading && !streamingText && (
           <div className="flex items-center gap-2 text-gray-500">
             <div className="animate-pulse flex space-x-1">
@@ -268,7 +312,7 @@ const ChatContainer: React.FC = () => {
               <div className="h-2 w-2 bg-gray-400 rounded-full"></div>
               <div className="h-2 w-2 bg-gray-400 rounded-full"></div>
             </div>
-            <span className="text-sm">Génération en cours...</span>
+            <span className="text-sm">Initialisation...</span>
           </div>
         )}
         
