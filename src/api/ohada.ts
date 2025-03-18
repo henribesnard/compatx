@@ -1,23 +1,7 @@
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import { ApiErrorResponse } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-
-// Création d'une instance axios configurée
-const createApiInstance = (token?: string | null): AxiosInstance => {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  
-  return axios.create({
-    baseURL: API_URL,
-    headers,
-  });
-};
 
 // Types pour l'API OHADA
 export interface QueryRequest {
@@ -99,7 +83,7 @@ export interface StreamCallbacks {
   onProgress?: (data: StreamProgressEvent) => void;
   onChunk?: (text: string, completion: number) => void;
   onComplete?: (data: QueryResponse) => void;
-  onError?: (error: StreamErrorEvent | Event) => void;
+  onError?: (error: StreamErrorEvent | Error) => void;
 }
 
 export interface HistoryResponse {
@@ -120,9 +104,129 @@ export interface QueryStatus {
   error?: string;
 }
 
-// Client API pour communiquer avec l'API OHADA
+/**
+ * Création d'une instance axios configurée avec les en-têtes appropriés
+ */
+const createApiInstance = (token?: string | null): AxiosInstance => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return axios.create({
+    baseURL: API_URL,
+    headers,
+  });
+};
+
+/**
+ * Gestionnaire d'erreurs commun pour toutes les requêtes API
+ */
+const handleApiError = (error: unknown): Error => {
+  if (axios.isAxiosError(error)) {
+    const axiosError = error as unknown as {
+      response?: {
+        data?: ApiErrorResponse;
+        status?: number;
+      };
+    };
+    
+    if (axiosError.response?.data?.detail) {
+      return new Error(axiosError.response.data.detail);
+    } else if (axiosError.response?.data?.message) {
+      return new Error(axiosError.response.data.message);
+    } else if (axiosError.response?.status === 401) {
+      return new Error('Session expirée. Veuillez vous reconnecter.');
+    } else if (axiosError.response?.status === 403) {
+      return new Error('Accès refusé. Vérifiez vos permissions ou reconnectez-vous.');
+    }
+  }
+  
+  return new Error('Une erreur inattendue est survenue. Veuillez réessayer.');
+};
+
+/**
+ * Classe utilitaire pour le traitement des événements SSE
+ */
+class StreamParser {
+  private buffer = '';
+  private currentEvent = '';
+  private decoder = new TextDecoder();
+  
+  constructor(private callbacks: StreamCallbacks) {}
+  
+  processChunk(chunk: Uint8Array): void {
+    this.buffer += this.decoder.decode(chunk, { stream: true });
+    this.processBuffer();
+  }
+  
+  processFinalChunk(chunk?: Uint8Array): void {
+    if (chunk) {
+      this.buffer += this.decoder.decode(chunk);
+    } else {
+      this.buffer += this.decoder.decode();
+    }
+    this.processBuffer();
+  }
+  
+  private processBuffer(): void {
+    let lineEnd;
+    
+    while ((lineEnd = this.buffer.indexOf('\n')) >= 0) {
+      const line = this.buffer.slice(0, lineEnd).trim();
+      this.buffer = this.buffer.slice(lineEnd + 1);
+      
+      if (!line) continue;
+      
+      if (line.startsWith('event:')) {
+        this.currentEvent = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        const data = line.slice(5).trim();
+        this.handleEvent(this.currentEvent, data);
+      }
+    }
+  }
+  
+  private handleEvent(eventType: string, data: string): void {
+    try {
+      const parsedData = JSON.parse(data);
+      
+      switch(eventType) {
+        case 'start':
+          if (this.callbacks.onStart) this.callbacks.onStart(parsedData);
+          break;
+        case 'progress':
+          if (this.callbacks.onProgress) this.callbacks.onProgress(parsedData);
+          break;
+        case 'chunk':
+          if (this.callbacks.onChunk) this.callbacks.onChunk(parsedData.text, parsedData.completion);
+          break;
+        case 'complete':
+          if (this.callbacks.onComplete) this.callbacks.onComplete(parsedData);
+          break;
+        case 'error':
+          if (this.callbacks.onError) this.callbacks.onError(parsedData);
+          break;
+        default:
+          // Si c'est un chunk sans événement spécifié
+          if (parsedData.text !== undefined && parsedData.completion !== undefined && this.callbacks.onChunk) {
+            this.callbacks.onChunk(parsedData.text, parsedData.completion);
+          }
+      }
+    } catch (e) {
+      console.error(`Error parsing event data (${eventType}):`, e, data);
+    }
+  }
+}
+
+// Client API principal pour communiquer avec l'API OHADA
 export const ohadaApi = {
-  // Obtenir des informations sur l'API
+  /**
+   * Obtenir des informations sur l'API
+   */
   async getApiInfo(): Promise<ApiInfo> {
     try {
       const api = createApiInstance();
@@ -130,33 +234,13 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error getting API info:', error);
-      throw this.handleApiError(error);
+      throw handleApiError(error);
     }
   },
   
-  // Gérer les erreurs d'API
-  handleApiError(error: unknown): Error {
-    if (axios.isAxiosError(error)) {
-      const axiosError = error as unknown as {
-        response?: {
-          data?: ApiErrorResponse;
-          status?: number;
-        };
-      };
-      
-      if (axiosError.response?.data?.detail) {
-        return new Error(axiosError.response.data.detail);
-      } else if (axiosError.response?.data?.message) {
-        return new Error(axiosError.response.data.message);
-      } else if (axiosError.response?.status === 401) {
-        return new Error('Session expirée. Veuillez vous reconnecter.');
-      }
-    }
-    
-    return new Error('Une erreur inattendue est survenue. Veuillez réessayer.');
-  },
-  
-  // Envoyer une requête standard (sans streaming)
+  /**
+   * Envoyer une requête standard (sans streaming)
+   */
   async query(queryText: string, options: Partial<QueryRequest> = {}, token?: string | null): Promise<QueryResponse> {
     try {
       const api = createApiInstance(token);
@@ -174,11 +258,13 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error querying OHADA API:', error);
-      throw this.handleApiError(error);
+      throw handleApiError(error);
     }
   },
   
-  // Obtenir l'historique des conversations
+  /**
+   * Obtenir l'historique des conversations
+   */
   async getHistory(limit: number = 10, token?: string | null): Promise<HistoryResponse> {
     try {
       const api = createApiInstance(token);
@@ -186,23 +272,34 @@ export const ohadaApi = {
       return response.data;
     } catch (error) {
       console.error('Error getting history:', error);
-      throw this.handleApiError(error);
+      throw handleApiError(error);
     }
   },
   
-  // Vérifier le statut d'une requête en cours
-  async getQueryStatus(queryId: string): Promise<QueryStatus> {
+  /**
+   * Vérifier le statut d'une requête en cours
+   */
+  async getQueryStatus(queryId: string, token?: string | null): Promise<QueryStatus> {
     try {
-      const api = createApiInstance();
+      const api = createApiInstance(token);
       const response = await api.get<QueryStatus>(`/status/${queryId}`);
       return response.data;
     } catch (error) {
       console.error('Error checking query status:', error);
-      throw this.handleApiError(error);
+      throw handleApiError(error);
     }
   },
   
-  // Fonction pour le streaming de réponses en utilisant EventSource
+  /**
+   * Méthode principale pour le streaming de réponses
+   * Utilise fetch avec ReadableStream pour une compatibilité maximale
+   * 
+   * @param queryText - Le texte de la requête
+   * @param options - Options supplémentaires pour la requête
+   * @param callbacks - Fonctions de rappel pour traiter les événements de streaming
+   * @param token - Token d'authentification 
+   * @returns Fonction pour annuler le stream
+   */
   streamQuery(
     queryText: string, 
     options: Partial<QueryRequest> = {},
@@ -223,19 +320,120 @@ export const ohadaApi = {
     const url = `${API_URL}/stream?${params}`;
     console.log("Stream URL:", url);
     
+    // Créer un contrôleur d'abandon
+    const controller = new AbortController();
+    
+    // Lance la requête fetch en mode streaming
+    (async () => {
+      try {
+        // Entêtes avec authorization
+        const headers: Record<string, string> = {
+          'Accept': 'text/event-stream'
+        };
+        
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
+        console.log("Streaming request with headers:", headers);
+        
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: controller.signal
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorText}`);
+        }
+        
+        // Vérifier que le body est disponible
+        if (!response.body) {
+          throw new Error('ReadableStream not supported in this browser.');
+        }
+        
+        console.log("Stream connection established successfully");
+        
+        const reader = response.body.getReader();
+        const parser = new StreamParser(callbacks);
+        
+        // Boucle de lecture du stream
+        while (true) {
+          const { value, done } = await reader.read();
+          
+          if (done) {
+            parser.processFinalChunk();
+            console.log('Stream complete');
+            break;
+          }
+          
+          parser.processChunk(value);
+        }
+      } catch (error: unknown) {
+        const typedError = error as Error;
+        if (typedError.name === 'AbortError') {
+          console.log('Stream aborted by user');
+        } else {
+          console.error('Stream error:', typedError);
+          if (callbacks.onError) {
+            callbacks.onError(typedError);
+          }
+        }
+      }
+    })();
+    
+    // Retourner une fonction pour annuler le stream
+    return () => {
+      console.log("Aborting stream request");
+      controller.abort();
+    };
+  },
+  
+  /**
+   * Méthode alternative utilisant EventSource
+   * Conservé pour compatibilité, mais n'est pas recommandé
+   * car EventSource ne permet pas d'ajouter des en-têtes d'auth
+   * 
+   * Note: Cette méthode est obsolète et ne devrait plus être utilisée
+   */
+  streamWithEventSource(
+    queryText: string, 
+    options: Partial<QueryRequest> = {},
+    callbacks: StreamCallbacks,
+    token?: string | null
+  ): () => void {
+    console.warn("streamWithEventSource is deprecated. Use streamQuery instead.");
+    
+    // Construction des paramètres d'URL
+    const params = new URLSearchParams({
+      query: queryText,
+      include_sources: (options.include_sources !== false).toString(),
+      n_results: (options.n_results || 5).toString(),
+    });
+    
+    if (options.partie) params.append('partie', options.partie.toString());
+    if (options.chapitre) params.append('chapitre', options.chapitre.toString());
+    if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
+    
+    // Pour EventSource, nous devons passer le token dans l'URL car
+    // EventSource ne supporte pas l'ajout d'en-têtes personnalisés
+    if (token) {
+      params.append('_token', token);
+    }
+    
+    const url = `${API_URL}/stream?${params}`;
+    
     // Variables pour gérer l'EventSource
     let eventSource: EventSource | null = null;
     
     try {
-      // Si le token est fourni, l'ajouter à l'URL pour l'authentification
-      const authUrl = token ? `${url}&_token=${token}` : url;
-      
       // Créer une nouvelle instance EventSource
-      eventSource = new EventSource(authUrl);
+      eventSource = new EventSource(url);
       
       // Configurer les gestionnaires d'événements
       eventSource.onopen = () => {
-        console.log('Stream connection established');
+        console.log('EventSource connection established');
       };
       
       // Événement de démarrage
@@ -300,10 +498,10 @@ export const ohadaApi = {
               const errorData = JSON.parse(event.data);
               callbacks.onError(errorData);
             } catch (e) {
-              callbacks.onError(event);
+              callbacks.onError(new Error("Error parsing error event data"));
             }
           } else {
-            callbacks.onError(event);
+            callbacks.onError(new Error("EventSource connection error"));
           }
         }
         
@@ -318,7 +516,7 @@ export const ohadaApi = {
       eventSource.onerror = (event) => {
         console.error('EventSource error:', event);
         if (callbacks.onError) {
-          callbacks.onError(event);
+          callbacks.onError(new Error("EventSource general error"));
         }
         
         // Fermer la connexion
@@ -331,157 +529,17 @@ export const ohadaApi = {
     } catch (error) {
       console.error('Error creating EventSource:', error);
       if (callbacks.onError) {
-        callbacks.onError(error as Event);
+        callbacks.onError(error as Error);
       }
     }
     
     // Retourner une fonction pour fermer la connexion
     return () => {
       if (eventSource) {
-        console.log('Closing event source connection');
+        console.log('Closing EventSource connection');
         eventSource.close();
         eventSource = null;
       }
-    };
-  },
-  
-  // Implémentation de secours pour les navigateurs qui ne supportent pas EventSource
-  streamWithFetch(
-    queryText: string, 
-    options: Partial<QueryRequest> = {},
-    callbacks: StreamCallbacks,
-    token?: string | null
-  ): () => void {
-    // Construire l'URL similaire à streamQuery
-    const params = new URLSearchParams({
-      query: queryText,
-      include_sources: (options.include_sources !== false).toString(),
-      n_results: (options.n_results || 5).toString(),
-    });
-    
-    if (options.partie) params.append('partie', options.partie.toString());
-    if (options.chapitre) params.append('chapitre', options.chapitre.toString());
-    if (options.save_to_conversation) params.append('save_to_conversation', options.save_to_conversation);
-    
-    const url = `${API_URL}/stream?${params}`;
-    console.log("Fetch Stream URL:", url);
-    
-    // Créer un contrôleur d'abandon
-    const controller = new AbortController();
-    
-    // Lancer la requête fetch en mode streaming
-    (async () => {
-      try {
-        // Entêtes avec authorization comme dans Postman
-        const headers: Record<string, string> = {
-          'Accept': 'text/event-stream'
-        };
-        
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        
-        console.log("Fetch request with headers:", headers);
-        
-        const response = await fetch(url, {
-          method: 'GET',
-          headers,
-          signal: controller.signal
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-        
-        // Vérifier que le body est disponible
-        if (!response.body) {
-          throw new Error('ReadableStream not supported in this browser.');
-        }
-        
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let currentEvent = '';
-        
-        console.log("Stream connection established successfully");
-        
-        // Boucle de lecture du stream
-        while (true) {
-          const { value, done } = await reader.read();
-          
-          if (done) {
-            console.log('Stream complete');
-            break;
-          }
-          
-          const chunk = decoder.decode(value, { stream: true });
-          console.log("Raw chunk received:", chunk);
-          buffer += chunk;
-          
-          // Traiter les lignes complètes
-          let lineEnd;
-          while ((lineEnd = buffer.indexOf('\n')) >= 0) {
-            const line = buffer.slice(0, lineEnd).trim();
-            buffer = buffer.slice(lineEnd + 1);
-            
-            if (!line) continue;
-            
-            if (line.startsWith('event:')) {
-              currentEvent = line.slice(6).trim();
-              console.log("Event type:", currentEvent);
-            } else if (line.startsWith('data:')) {
-              const data = line.slice(5).trim();
-              console.log(`${currentEvent} data:`, data);
-              
-              try {
-                const parsedData = JSON.parse(data);
-                
-                // Gérer les différents types d'événements
-                switch(currentEvent) {
-                  case 'start':
-                    if (callbacks.onStart) callbacks.onStart(parsedData as StreamStartEvent);
-                    break;
-                  case 'progress':
-                    if (callbacks.onProgress) callbacks.onProgress(parsedData as StreamProgressEvent);
-                    break;
-                  case 'chunk':
-                    if (callbacks.onChunk) callbacks.onChunk(parsedData.text, parsedData.completion);
-                    break;
-                  case 'complete':
-                    if (callbacks.onComplete) callbacks.onComplete(parsedData as QueryResponse);
-                    return; // Fin du streaming
-                  case 'error':
-                    if (callbacks.onError) callbacks.onError(parsedData as StreamErrorEvent);
-                    return;
-                  default:
-                    // Si c'est un chunk sans événement spécifié
-                    if (parsedData.text !== undefined && parsedData.completion !== undefined) {
-                      if (callbacks.onChunk) callbacks.onChunk(parsedData.text, parsedData.completion);
-                    }
-                }
-              } catch (e) {
-                console.error('Error parsing event data:', e, data);
-              }
-            }
-          }
-        }
-      } catch (error: unknown) {
-        const typedError = error as Error;
-        if (typedError.name === 'AbortError') {
-          console.log('Stream aborted by user');
-        } else {
-          console.error('Stream error:', typedError);
-          if (callbacks.onError) {
-            callbacks.onError(typedError as unknown as Event);
-          }
-        }
-      }
-    })();
-    
-    // Retourner une fonction pour annuler le stream
-    return () => {
-      console.log("Aborting stream request");
-      controller.abort();
     };
   }
 };

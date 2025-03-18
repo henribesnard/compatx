@@ -6,6 +6,7 @@ import ChatMessage from './ChatMessage';
 import ChatInput from './ChatInput';
 import { ohadaApi, Source as ApiSource } from '../../api/ohada';
 import { Source } from '../../types';
+import ProgressBar from '../Shared/ProgressBar';
 
 const ChatContainer: React.FC = () => {
   const { currentConversation, addMessage, isLoadingConversations } = useChat();
@@ -55,6 +56,31 @@ const ChatContainer: React.FC = () => {
       }
     };
   }, []);
+
+  // Fonction pour annuler le streaming en cours
+  const cancelStreaming = useCallback(() => {
+    if (abortControllerRef.current) {
+      console.log("User manually cancelled streaming");
+      abortControllerRef.current();
+      abortControllerRef.current = null;
+      
+      // Ajouter la réponse partielle avec note d'annulation
+      const partialResponse = finalResponseRef.current.answer;
+      if (partialResponse && partialResponse.length > 0) {
+        addMessage(
+          partialResponse + "\n\n(Remarque: Génération interrompue par l'utilisateur.)",
+          'assistant'
+        );
+      }
+      
+      // Réinitialiser les états
+      setStreamingText('');
+      setStreamingTextClass('');
+      setStreamingStatus(null);
+      setStreamingProgress(0);
+      setIsLoading(false);
+    }
+  }, [addMessage]);
 
   // Fonction pour envoyer un message
   const handleSendMessage = useCallback(async (message: string) => {
@@ -275,28 +301,43 @@ const ChatContainer: React.FC = () => {
             </div>
             
             <div className="flex flex-col">
-              <div className="mb-1">
-                <span className="text-xs font-medium text-gray-500">
-                  Assistant ComptaX
-                </span>
-                {streamingStatus && (
-                  <span className="ml-2 text-xs text-gray-400">
-                    {streamingStatus}
+              <div className="mb-1 flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-medium text-gray-500">
+                    Assistant ComptaX
                   </span>
+                  {streamingStatus && (
+                    <span className="ml-2 text-xs text-gray-400">
+                      {streamingStatus}
+                    </span>
+                  )}
+                </div>
+                {isLoading && (
+                  <button 
+                    onClick={cancelStreaming}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium"
+                  >
+                    Annuler
+                  </button>
                 )}
               </div>
               
               <div className={`message-bubble assistant-bubble ${streamingTextClass}`}>
                 <div className="whitespace-pre-wrap">{streamingText}</div>
-                {!streamingTextClass && <span className="animate-pulse inline-block ml-1">▌</span>}
+                {!streamingTextClass && <span className="typing-indicator inline-block ml-1">▌</span>}
                 
                 {/* Barre de progression */}
                 {streamingProgress > 0 && (
-                  <div className="mt-2 w-full bg-gray-200 rounded-full h-1.5">
-                    <div 
-                      className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-in-out" 
-                      style={{ width: `${streamingProgress * 100}%` }}
-                    ></div>
+                  <div className="mt-2">
+                    <ProgressBar 
+                      progress={streamingProgress} 
+                      size="sm" 
+                      variant={
+                        streamingStatus?.includes('Recherche') ? 'info' :
+                        streamingStatus?.includes('Analyse') ? 'warning' :
+                        'default'
+                      }
+                    />
                   </div>
                 )}
               </div>
@@ -319,7 +360,11 @@ const ChatContainer: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
       
-      <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
+      <ChatInput 
+        onSendMessage={handleSendMessage} 
+        isLoading={isLoading} 
+        onCancelStreaming={cancelStreaming}
+      />
     </>
   );
 };

@@ -5,9 +5,10 @@ import { FaPaperPlane, FaPaperclip, FaTimes } from 'react-icons/fa';
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   isLoading: boolean;
+  onCancelStreaming?: () => void;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading, onCancelStreaming }) => {
   const [message, setMessage] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -39,6 +40,12 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
     }
   }, [handleSubmit]);
   
+  const handleCancelStreaming = useCallback(() => {
+    if (onCancelStreaming) {
+      onCancelStreaming();
+    }
+  }, [onCancelStreaming]);
+  
   return (
     <div className="border-t border-gray-200 px-6 py-4">
       <form onSubmit={handleSubmit} className="relative">
@@ -65,10 +72,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
               <button
                 type="button"
                 className="p-2 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
-                onClick={() => {
-                  // Cette fonction pourrait appeler un callback pour annuler le streaming
-                  console.log('Annuler le streaming');
-                }}
+                onClick={handleCancelStreaming}
               >
                 <FaTimes size={14} />
               </button>
