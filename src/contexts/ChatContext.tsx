@@ -160,9 +160,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoadingConversations(true);
       
       try {
-        // D'abord charger les conversations locales
-        const localConversations = loadConversationsFromStorage();
-        
         if (isAuthenticated) {
           try {
             // Récupérer les conversations du serveur
@@ -171,27 +168,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               headers: {
                 Authorization: `Bearer ${token}`
               },
-              timeout: 8000 // Ajouter un timeout pour éviter les attentes infinies
+              timeout: 8000
             });
             
-            // Convertir les conversations du serveur au format local
+            // Si l'utilisateur est authentifié, utiliser uniquement les conversations du serveur
             const serverConversations = response.data.map(serverConv => convertServerConversation(serverConv));
             
-            // Fusionner les conversations locales et serveur
-            const mergedConversations = mergeConversations(localConversations, serverConversations);
+            setConversations(serverConversations);
             
-            setConversations(mergedConversations);
-            if (mergedConversations.length > 0 && !currentConversation) {
-              setCurrentConversation(mergedConversations[0]);
+            if (serverConversations.length > 0) {
+              setCurrentConversation(serverConversations[0]);
+            } else {
+              // Si pas de conversations sur le serveur mais authentifié, ne pas afficher de conversation
+              setCurrentConversation(null);
             }
           } catch (error) {
             console.error('Error fetching conversations from server:', error);
+            // En cas d'erreur de récupération du serveur, utiliser les conversations locales comme fallback
+            const localConversations = loadConversationsFromStorage();
             setConversations(localConversations);
             if (localConversations.length > 0 && !currentConversation) {
               setCurrentConversation(localConversations[0]);
             }
           }
         } else {
+          // Si non authentifié, charger uniquement les conversations locales
+          const localConversations = loadConversationsFromStorage();
           setConversations(localConversations);
           if (localConversations.length > 0 && !currentConversation) {
             setCurrentConversation(localConversations[0]);
@@ -230,20 +232,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Convertir et mettre à jour
       const serverConversations = response.data.map(serverConv => convertServerConversation(serverConv));
-      const localConversations = loadConversationsFromStorage();
-      const mergedConversations = mergeConversations(localConversations, serverConversations);
       
-      setConversations(mergedConversations);
+      // Si authentifié, utiliser uniquement les conversations du serveur
+      setConversations(serverConversations);
       
       // Mettre à jour la conversation courante si elle existe dans les nouvelles données
-      if (currentConversation) {
-        const updatedCurrentConv = mergedConversations.find(
-          conv => (conv.serverId && conv.serverId === currentConversation.serverId) || 
-                 (conv.id === currentConversation.id)
+      if (currentConversation && currentConversation.serverId) {
+        const updatedCurrentConv = serverConversations.find(
+          conv => conv.serverId === currentConversation.serverId
         );
         
         if (updatedCurrentConv) {
           setCurrentConversation(updatedCurrentConv);
+        } else if (serverConversations.length > 0) {
+          // Si la conversation actuelle n'existe plus, sélectionner la première conversation
+          setCurrentConversation(serverConversations[0]);
+        } else {
+          // Si aucune conversation n'existe, mettre à null
+          setCurrentConversation(null);
         }
       }
     } catch (error) {
@@ -257,12 +263,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     try {
       if (conversations.length > 0) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+        // Si l'utilisateur est authentifié, ne sauvegarder que les conversations non synchronisées
+        if (isAuthenticated) {
+          const localConversations = conversations.filter(conv => !conv.syncedWithServer);
+          if (localConversations.length > 0) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(localConversations));
+          } else {
+            // Si toutes les conversations sont synchronisées, effacer le stockage local
+            localStorage.removeItem(STORAGE_KEY);
+          }
+        } else {
+          // Si non authentifié, sauvegarder toutes les conversations
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+        }
+      } else if (conversations.length === 0 && isAuthenticated) {
+        // Si aucune conversation et authentifié, effacer le stockage local
+        localStorage.removeItem(STORAGE_KEY);
       }
     } catch (error) {
       console.error('Error saving conversations to storage:', error);
     }
-  }, [conversations]);
+  }, [conversations, isAuthenticated]);
 
   // Utilitaire pour charger les conversations depuis le localStorage
   const loadConversationsFromStorage = (): Conversation[] => {
@@ -298,39 +319,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     return [initialConversation];
   };
-
-  // Fusionner les conversations locales et serveur
-  const mergeConversations = useCallback((localConvs: Conversation[], serverConvs: Conversation[]): Conversation[] => {
-    // S'assurer que les deux listes sont valides
-    if (!Array.isArray(localConvs)) localConvs = [];
-    if (!Array.isArray(serverConvs)) serverConvs = [];
-    
-    const result = [...localConvs];
-    
-    // Ajouter ou mettre à jour les conversations serveur
-    serverConvs.forEach(serverConv => {
-      if (!serverConv || !serverConv.serverId) return;
-      
-      // Chercher si une conversation locale correspond à une conversation serveur
-      const existingIndex = result.findIndex(c => 
-        c.serverId === serverConv.serverId || 
-        (serverConv.messages.length > 0 && c.messages.length > 0 && 
-         c.messages[0].content === serverConv.messages[0].content)
-      );
-      
-      if (existingIndex >= 0) {
-        // Préserver l'ID local et mettre à jour les données
-        const localId = result[existingIndex].id;
-        result[existingIndex] = { ...serverConv, id: localId };
-      } else {
-        // Ajouter la nouvelle conversation
-        result.push(serverConv);
-      }
-    });
-    
-    // Trier par date de mise à jour (plus récent en premier)
-    return result.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  }, []);
 
   // Synchroniser une conversation spécifique avec le serveur
   const syncConversation = useCallback(async (conversationId: string, serverId?: string) => {

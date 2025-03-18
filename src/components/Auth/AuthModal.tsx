@@ -24,6 +24,15 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const [isClosing, setIsClosing] = useState(false);
   const { isAuthenticated } = useAuth();
   
+  // Déplacer le useCallback ici, avant les conditions
+  const handleClose = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsClosing(false);
+      onClose();
+    }, 300);
+  }, [onClose]);
+  
   // Mise à jour du formulaire actif lorsque initialForm change
   useEffect(() => {
     if (isOpen && initialForm) {
@@ -36,19 +45,10 @@ const AuthModal: React.FC<AuthModalProps> = ({
     if (isAuthenticated && isOpen) {
       handleClose();
     }
-  }, [isAuthenticated, isOpen]);
+  }, [isAuthenticated, isOpen, handleClose]);
 
   // Si le modal n'est pas ouvert, ne pas le rendre du tout
   if (!isOpen && !isClosing) return null;
-  
-  // Fonction pour fermer avec animation
-  const handleClose = useCallback(() => {
-    setIsClosing(true);
-    setTimeout(() => {
-      setIsClosing(false);
-      onClose();
-    }, 300);
-  }, [onClose]);
 
   const handleOpenLogin = () => setCurrentForm('login');
   const handleOpenRegister = () => setCurrentForm('register');
