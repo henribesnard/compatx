@@ -26,7 +26,7 @@ const ChatContainer: React.FC = () => {
       
       {/* Zone des messages */}
       <div className="flex-1 overflow-y-auto p-4">
-        {!currentConversation || currentConversation.messages.length === 0 ? (
+        {!currentConversation ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center max-w-md p-6 rounded-lg bg-primary-light">
               <h3 className="text-xl font-bold text-primary mb-3">Assistant Comptable OHADA</h3>
@@ -40,10 +40,26 @@ const ChatContainer: React.FC = () => {
           </div>
         ) : (
           <>
-            {currentConversation.messages.map((message) => (
-              <ChatMessage key={message.id} message={message} />
-            ))}
-            <div ref={messagesEndRef} />
+            {currentConversation.messages.length === 0 ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="text-center max-w-md p-6 rounded-lg bg-primary-light">
+                  <h3 className="text-xl font-bold text-primary mb-3">Commencez votre conversation</h3>
+                  <p className="text-gray-600 mb-4">
+                    Posez vos questions sur le plan comptable OHADA et les normes SYSCOHADA.
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Exemple: "Comment fonctionne l'amortissement dégressif dans le SYSCOHADA?"
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {currentConversation.messages.map((message) => (
+                  <ChatMessage key={message.id} message={message} />
+                ))}
+                <div ref={messagesEndRef} />
+              </>
+            )}
           </>
         )}
       </div>

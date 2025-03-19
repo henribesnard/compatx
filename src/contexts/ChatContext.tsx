@@ -5,6 +5,9 @@ import { conversationApi } from '../api/conversation';
 import { storageService } from '../services/storageService';
 import { convertApiConversation, generateTempId, generateConversationTitle } from '../utils/conversationUtils';
 
+// Clé pour stocker l'ID de la conversation active
+const ACTIVE_CONVERSATION_KEY = 'comptax_active_conversation';
+
 interface ChatContextProps {
   conversations: Conversation[];
   currentConversation: Conversation | null;
@@ -38,17 +41,79 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(null);
       
       try {
+        // Récupérer l'ID de la conversation active depuis le localStorage
+        const activeConversationId = localStorage.getItem(ACTIVE_CONVERSATION_KEY);
+        
         if (isAuthenticated) {
           // Charger les conversations depuis le serveur
-          await refreshConversations();
+          const token = getToken();
+          if (!token) throw new Error('Token non disponible');
+          
+          const apiConversations = await conversationApi.fetchConversations(token);
+          
+          // Convertir les données API en format local
+          const formattedConversations = apiConversations.map(convertApiConversation);
+          
+          // Trier par date de mise à jour (plus récentes en premier)
+          formattedConversations.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+          
+          setConversations(formattedConversations);
+          
+          // Restaurer la conversation active si elle existe
+          if (activeConversationId && formattedConversations.length > 0) {
+            const activeConversation = formattedConversations.find(
+              c => c.id === activeConversationId || c.serverId === activeConversationId
+            );
+            
+            if (activeConversation) {
+              // Charger les détails complets de la conversation active
+              if (activeConversation.serverId) {
+                try {
+                  const fullConversation = await conversationApi.fetchConversation(activeConversation.serverId, token);
+                  const formattedConversation = convertApiConversation(fullConversation);
+                  
+                  // Mettre à jour la conversation dans la liste
+                  setConversations(prev => prev.map(c => 
+                    c.id === activeConversation.id ? formattedConversation : c
+                  ));
+                  
+                  setCurrentConversation(formattedConversation);
+                } catch (error) {
+                  console.error('Erreur lors du chargement des détails de la conversation:', error);
+                  setCurrentConversation(activeConversation);
+                }
+              } else {
+                setCurrentConversation(activeConversation);
+              }
+            } else if (formattedConversations.length > 0) {
+              // Si la conversation active n'existe plus, prendre la première
+              setCurrentConversation(formattedConversations[0]);
+              localStorage.setItem(ACTIVE_CONVERSATION_KEY, formattedConversations[0].id);
+            }
+          } else if (formattedConversations.length > 0) {
+            // Si aucune conversation active n'est stockée, prendre la première
+            setCurrentConversation(formattedConversations[0]);
+            localStorage.setItem(ACTIVE_CONVERSATION_KEY, formattedConversations[0].id);
+          }
         } else {
           // Charger les conversations locales
           const localConversations = storageService.loadConversations();
           setConversations(localConversations);
           
-          // Définir la conversation actuelle si il y en a
-          if (localConversations.length > 0 && !currentConversation) {
+          // Restaurer la conversation active locale
+          if (activeConversationId && localConversations.length > 0) {
+            const activeConversation = localConversations.find(c => c.id === activeConversationId);
+            if (activeConversation) {
+              setCurrentConversation(activeConversation);
+            } else if (localConversations.length > 0) {
+              // Si la conversation active n'existe plus, prendre la première
+              setCurrentConversation(localConversations[0]);
+              localStorage.setItem(ACTIVE_CONVERSATION_KEY, localConversations[0].id);
+            }
+          } else if (localConversations.length > 0) {
+            // Si aucune conversation active n'est stockée, prendre la première
             setCurrentConversation(localConversations[0]);
+            localStorage.setItem(ACTIVE_CONVERSATION_KEY, localConversations[0].id);
           }
         }
       } catch (err) {
@@ -60,7 +125,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     
     loadConversations();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, getToken]);
   
   // Rafraîchir les conversations depuis le serveur
   const refreshConversations = async () => {
@@ -83,13 +148,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Conserver l'ID de la conversation actuelle avant la mise à jour
       const currentId = currentConversation?.id;
+      const currentServerId = currentConversation?.serverId;
       
       setConversations(formattedConversations);
       
       // Mettre à jour la conversation actuelle si nécessaire SANS changement de focus
       if (currentId) {
         const updatedCurrentConv = formattedConversations.find(
-          c => c.id === currentId || c.serverId === currentId
+          c => c.id === currentId || c.serverId === currentId || 
+              (currentServerId && c.serverId === currentServerId)
         );
         if (updatedCurrentConv) {
           setCurrentConversation(updatedCurrentConv);
@@ -97,6 +164,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else if (formattedConversations.length > 0 && !currentConversation) {
         // Seulement si aucune conversation n'est actuellement sélectionnée
         setCurrentConversation(formattedConversations[0]);
+        localStorage.setItem(ACTIVE_CONVERSATION_KEY, formattedConversations[0].id);
       }
     } catch (err) {
       console.error('Erreur lors du rafraîchissement des conversations:', err);
@@ -120,6 +188,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setConversations(prev => [newConversation, ...prev]);
         setCurrentConversation(newConversation);
+        localStorage.setItem(ACTIVE_CONVERSATION_KEY, newConversation.id);
         
         return newConversation;
       } else {
@@ -135,6 +204,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setConversations(prev => [newConversation, ...prev]);
         setCurrentConversation(newConversation);
+        localStorage.setItem(ACTIVE_CONVERSATION_KEY, newConversation.id);
         storageService.saveConversation(newConversation);
         
         return newConversation;
@@ -154,6 +224,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     if (conversation) {
       setCurrentConversation(conversation);
+      
+      // Sauvegarder l'ID de la conversation active dans localStorage
+      localStorage.setItem(ACTIVE_CONVERSATION_KEY, id);
       
       // Si connecté, charger les détails complets depuis le serveur
       if (isAuthenticated && conversation.serverId) {
@@ -258,12 +331,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Supprimer de l'état
       setConversations(prev => prev.filter(c => c.id !== id));
       
+      // Si la conversation supprimée était la dernière
+      if (conversations.length === 1 && conversations[0].id === id) {
+        localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
+        setCurrentConversation(null);
+      } 
       // Si la conversation supprimée était la conversation actuelle
-      if (currentConversation?.id === id) {
+      else if (currentConversation?.id === id) {
         const remainingConversations = conversations.filter(c => c.id !== id);
         if (remainingConversations.length > 0) {
-          setCurrentConversation(remainingConversations[0]);
+          const newActiveConversation = remainingConversations[0];
+          setCurrentConversation(newActiveConversation);
+          localStorage.setItem(ACTIVE_CONVERSATION_KEY, newActiveConversation.id);
         } else {
+          localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
           setCurrentConversation(null);
         }
       }

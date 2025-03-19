@@ -16,13 +16,7 @@ const Sidebar: React.FC = () => {
 
   return (
     <aside className="w-72 bg-white border-r border-gray-200 flex flex-col h-full">
-      <div className="p-4 border-b border-gray-200">
-        <h1 className="text-2xl font-bold text-primary mb-2">ComptaX</h1>
-        <div className="flex items-center">
-          <span className="text-xs bg-primary text-white px-2 py-0.5 rounded-full">OHADA</span>
-          <span className="ml-2 text-xs text-gray-500">Expert-comptable</span>
-        </div>
-      </div>
+    
       
       {/* Contenu principal du sidebar - liste des conversations */}
       <div className="flex-1 overflow-hidden">

@@ -172,11 +172,11 @@ export const StreamProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             
             // Si authentifié, rafraîchir les conversations pour obtenir les ID serveur
             // mais avec un délai pour éviter la redirection immédiate
-            if (isAuthenticated) {
-              setTimeout(() => {
-                refreshConversations();
-              }, 500);
-            }
+            //if (isAuthenticated) {
+            //  setTimeout(() => {
+            //    refreshConversations();
+           //   }, 500);
+           // }
             
             // Réinitialiser l'état de streaming
             clearStreamingState();
